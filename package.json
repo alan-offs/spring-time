@@ -1,0 +1,19 @@
+{
+  "name": "worktime",
+  "version": "0.1.0",
+  "description": "Self-hosted work time tracker with per-project URLs, reporting API and an installable dashboard.",
+  "type": "module",
+  "bin": {
+    "wt": "./bin/wt.js"
+  },
+  "scripts": {
+    "start": "node bin/wt.js serve",
+    "dev": "node --watch bin/wt.js serve",
+    "test": "node --test \"test/**/*.test.js\"",
+    "icons": "node scripts/make-icons.js"
+  },
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "license": "MIT"
+}

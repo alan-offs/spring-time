@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>worktime</title>
+<meta name="description" content="Track working time per project.">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<meta name="theme-color" content="#FFFBFE" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#141218" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="worktime">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body class="is-loading">
+<div class="wrap">
+  <header>
+    <div class="brand">worktime <span id="scope"></span></div>
+    <div id="project-picker"></div>
+    <button id="theme-toggle" class="btn-icon state" aria-label="Toggle colour theme" data-tip="Toggle theme">
+      <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" focusable="false">
+        <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/>
+        <path d="M12 3a9 9 0 0 1 0 18Z" fill="currentColor"/>
+      </svg>
+    </button>
+  </header>
+
+  <div class="banner" id="error-banner" role="alert" hidden>
+    <span class="msg"><strong>Couldn't load your time data.</strong> <span id="error-text"></span></span>
+    <button id="retry-btn" class="btn-text state">Retry</button>
+  </div>
+
+  <section class="timer" aria-label="Timer">
+    <span class="dot" id="timer-dot" style="background: var(--md-on-surface-variant)"></span>
+    <div class="fields">
+      <div class="field dense">
+        <input id="project-input" placeholder=" " autocomplete="off">
+        <label for="project-input">Project</label>
+      </div>
+      <div class="field dense">
+        <input id="desc-input" placeholder=" ">
+        <label for="desc-input">What are you working on?</label>
+      </div>
+      <div class="field dense tags">
+        <input id="tags-input" placeholder=" ">
+        <label for="tags-input">Tags</label>
+      </div>
+    </div>
+    <div class="since" id="since" hidden>
+      <span>since</span>
+      <input type="text" id="start-time" aria-label="Adjust the start time of the running timer">
+    </div>
+    <div class="elapsed idle" id="elapsed" aria-live="polite">0:00:00</div>
+    <button class="btn-primary state" id="toggle-btn">Start</button>
+  </section>
+
+  <section class="tiles">
+    <div class="tile hero"><div class="label">Today</div><div class="value" id="stat-today">—</div></div>
+    <div class="tile"><div class="label">This week</div><div class="value" id="stat-week">—</div></div>
+    <div class="tile"><div class="label" id="stat-range-label">Range total</div><div class="value" id="stat-range">—</div></div>
+    <div class="tile"><div class="label">Daily average</div><div class="value" id="stat-avg">—</div></div>
+  </section>
+
+  <div class="filters" role="group" aria-label="Date range">
+    <button class="chip state" data-days="1">Today</button>
+    <button class="chip state" data-days="7" aria-pressed="true">7 days</button>
+    <button class="chip state" data-days="30">30 days</button>
+    <button class="chip state" data-days="90">90 days</button>
+    <span class="spacer"></span>
+    <button id="add-btn" class="btn-outlined state">Add entry</button>
+    <button id="export-btn" class="btn-text state" data-tip="Download the current range as CSV">Export CSV</button>
+  </div>
+
+  <section class="charts">
+    <div class="card">
+      <h2>Hours per day</h2>
+      <div class="sub" id="daily-sub">&nbsp;</div>
+      <div id="daily-chart" class="chart-host"></div>
+      <div class="tooltip" id="daily-tip" role="status"></div>
+    </div>
+    <div class="card">
+      <h2 id="project-title">Time by project</h2>
+      <div class="sub" id="project-sub">&nbsp;</div>
+      <div id="project-chart" class="chart-host"></div>
+      <div class="tooltip" id="project-tip" role="status"></div>
+      <div class="legend" id="project-legend"></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Entries</h2>
+    <div class="sub" id="entries-sub">&nbsp;</div>
+    <div id="entries-table"></div>
+  </section>
+</div>
+
+<dialog id="entry-dialog" aria-labelledby="dialog-title">
+  <form method="dialog" id="entry-form">
+    <h2 id="dialog-title">Add entry</h2>
+    <div class="field">
+      <input name="project" required placeholder=" " id="f-project" autocomplete="off">
+      <label for="f-project">Project</label>
+    </div>
+    <div class="field">
+      <input name="description" placeholder=" " id="f-desc">
+      <label for="f-desc">Description</label>
+    </div>
+    <div class="row">
+      <div class="field">
+        <input type="text" name="date" required placeholder=" " id="f-date">
+        <label for="f-date">Date</label>
+      </div>
+      <div class="field">
+        <input type="text" name="start" required placeholder=" " id="f-start">
+        <label for="f-start">Start</label>
+      </div>
+      <div class="field">
+        <input type="text" name="end" required placeholder=" " id="f-end">
+        <label for="f-end">End</label>
+      </div>
+    </div>
+    <div class="field">
+      <input name="tags" placeholder=" " id="f-tags">
+      <label for="f-tags">Tags</label>
+    </div>
+    <p class="dialog-error" id="dialog-error" role="alert" hidden></p>
+    <div class="dialog-actions">
+      <button type="button" id="dialog-cancel" class="btn-text state">Cancel</button>
+      <button type="submit" class="btn-primary state" id="dialog-save">Save</button>
+    </div>
+  </form>
+</dialog>
+
+<div class="toast" id="toast" role="status"></div>
+<script type="module" src="/app.js"></script>
+</body>
+</html>

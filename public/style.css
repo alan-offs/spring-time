@@ -1,0 +1,783 @@
+/* ==========================================================================
+   worktime — Material Design 3 (Material You)
+   Hand-authored MD3 baseline: no Material Web Components, no Roboto webfont,
+   no build step. Tokens below are the MD3 baseline scheme; the categorical
+   chart PALETTE in app.js/db.js is a separate, CVD-validated system and is
+   deliberately NOT replaced by MD3 colour roles.
+   ========================================================================== */
+
+:root {
+  color-scheme: light;
+
+  /* ---- MD3 colour roles: baseline light ---------------------------------- */
+  --md-primary: #6750A4;
+  --md-on-primary: #FFFFFF;
+  --md-primary-container: #EADDFF;
+  --md-on-primary-container: #21005D;
+  --md-secondary: #625B71;
+  --md-on-secondary: #FFFFFF;
+  --md-secondary-container: #E8DEF8;
+  --md-on-secondary-container: #1D192B;
+  --md-tertiary: #7D5260;
+  --md-on-tertiary: #FFFFFF;
+  --md-tertiary-container: #FFD8E4;
+  --md-on-tertiary-container: #31111D;
+  --md-error: #B3261E;
+  --md-on-error: #FFFFFF;
+  --md-error-container: #F9DEDC;
+  --md-on-error-container: #410E0B;
+
+  --md-background: #FFFBFE;
+  --md-on-background: #1C1B1F;
+  --md-surface: #FFFBFE;
+  --md-on-surface: #1C1B1F;
+  --md-surface-variant: #E7E0EC;
+  --md-on-surface-variant: #49454F;
+
+  /* Tonal elevation: MD3 conveys depth with surface containers first and
+     shadow second, which is why these five exist instead of one grey. */
+  --md-surface-container-lowest: #FFFFFF;
+  --md-surface-container-low: #F7F2FA;
+  --md-surface-container: #F3EDF7;
+  --md-surface-container-high: #ECE6F0;
+  --md-surface-container-highest: #E6E0E9;
+
+  /* outline = meaningful boundaries (4.44:1). outline-variant = decorative
+     dividers only (1.66:1), which WCAG 1.4.11 exempts. Do not swap these. */
+  --md-outline: #79747E;
+  --md-outline-variant: #CAC4D0;
+  --md-inverse-surface: #313033;
+  --md-inverse-on-surface: #F4EFF4;
+  --md-scrim: rgba(0, 0, 0, .32);
+
+  /* ---- Shape scale ------------------------------------------------------- */
+  --md-corner-xs: 4px;
+  --md-corner-sm: 8px;
+  --md-corner-md: 12px;
+  --md-corner-lg: 16px;
+  --md-corner-xl: 28px;
+  --md-corner-full: 999px;
+
+  /* ---- Elevation --------------------------------------------------------- */
+  --md-elev-0: none;
+  --md-elev-1: 0 1px 2px rgba(0, 0, 0, .30), 0 1px 3px 1px rgba(0, 0, 0, .15);
+  --md-elev-2: 0 1px 2px rgba(0, 0, 0, .30), 0 2px 6px 2px rgba(0, 0, 0, .15);
+  --md-elev-3: 0 1px 3px rgba(0, 0, 0, .30), 0 4px 8px 3px rgba(0, 0, 0, .15);
+  --md-elev-4: 0 2px 3px rgba(0, 0, 0, .30), 0 6px 10px 4px rgba(0, 0, 0, .15);
+
+  /* ---- Motion: MD3 emphasized / standard easing -------------------------- */
+  --md-ease-emphasized: cubic-bezier(.2, 0, 0, 1);
+  --md-ease-standard: cubic-bezier(.2, 0, 0, 1);
+  --md-ease-accelerate: cubic-bezier(.3, 0, 1, 1);
+  --md-dur-short: 200ms;
+  --md-dur-medium: 300ms;
+
+  /* ---- State layer opacities --------------------------------------------- */
+  --md-state-hover: .08;
+  --md-state-focus: .10;
+  --md-state-press: .10;
+
+  /* ---- Aliases consumed by app.js when drawing SVG ------------------------ */
+  --plane: var(--md-background);
+  --surface-1: var(--md-surface-container-low);
+  --text-primary: var(--md-on-surface);
+  --text-secondary: var(--md-on-surface-variant);
+  --text-muted: var(--md-on-surface-variant);
+  --grid: var(--md-outline-variant);
+  --baseline: var(--md-outline);
+  --accent: var(--md-primary);
+  --critical: var(--md-error);
+  /* Background behind a floating label, so the notch it cuts in the field
+     outline matches whatever container the field sits on. Defaults to the page
+     itself; .timer/.card/dialog each re-declare it for their own surface. */
+  --field-bg: var(--md-background);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { color-scheme: dark; }
+}
+
+/* MD3 baseline dark scheme. Shared by the OS preference and the manual toggle. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --md-primary: #D0BCFF;
+    --md-on-primary: #381E72;
+    --md-primary-container: #4F378B;
+    --md-on-primary-container: #EADDFF;
+    --md-secondary: #CCC2DC;
+    --md-on-secondary: #332D41;
+    --md-secondary-container: #4A4458;
+    --md-on-secondary-container: #E8DEF8;
+    --md-tertiary: #EFB8C8;
+    --md-on-tertiary: #492532;
+    --md-tertiary-container: #633B48;
+    --md-on-tertiary-container: #FFD8E4;
+    --md-error: #F2B8B5;
+    --md-on-error: #601410;
+    --md-error-container: #8C1D18;
+    --md-on-error-container: #F9DEDC;
+
+    --md-background: #141218;
+    --md-on-background: #E6E1E5;
+    --md-surface: #141218;
+    --md-on-surface: #E6E1E5;
+    --md-surface-variant: #49454F;
+    --md-on-surface-variant: #CAC4D0;
+
+    --md-surface-container-lowest: #0F0D13;
+    --md-surface-container-low: #1D1B20;
+    --md-surface-container: #211F26;
+    --md-surface-container-high: #2B2930;
+    --md-surface-container-highest: #36343B;
+
+    --md-outline: #938F99;
+    --md-outline-variant: #49454F;
+    --md-inverse-surface: #E6E1E5;
+    --md-inverse-on-surface: #313033;
+    --md-scrim: rgba(0, 0, 0, .60);
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --md-primary: #D0BCFF;
+  --md-on-primary: #381E72;
+  --md-primary-container: #4F378B;
+  --md-on-primary-container: #EADDFF;
+  --md-secondary: #CCC2DC;
+  --md-on-secondary: #332D41;
+  --md-secondary-container: #4A4458;
+  --md-on-secondary-container: #E8DEF8;
+  --md-tertiary: #EFB8C8;
+  --md-on-tertiary: #492532;
+  --md-tertiary-container: #633B48;
+  --md-on-tertiary-container: #FFD8E4;
+  --md-error: #F2B8B5;
+  --md-on-error: #601410;
+  --md-error-container: #8C1D18;
+  --md-on-error-container: #F9DEDC;
+
+  --md-background: #141218;
+  --md-on-background: #E6E1E5;
+  --md-surface: #141218;
+  --md-on-surface: #E6E1E5;
+  --md-surface-variant: #49454F;
+  --md-on-surface-variant: #CAC4D0;
+
+  --md-surface-container-lowest: #0F0D13;
+  --md-surface-container-low: #1D1B20;
+  --md-surface-container: #211F26;
+  --md-surface-container-high: #2B2930;
+  --md-surface-container-highest: #36343B;
+
+  --md-outline: #938F99;
+  --md-outline-variant: #49454F;
+  --md-inverse-surface: #E6E1E5;
+  --md-inverse-on-surface: #313033;
+  --md-scrim: rgba(0, 0, 0, .60);
+}
+
+* { box-sizing: border-box; }
+
+/* MD3 typescale, mapped onto the system stack — Roboto is not bundled because
+   a webfont would be a network dependency in an offline-first PWA. */
+body {
+  margin: 0;
+  background: var(--md-background);
+  color: var(--md-on-surface);
+  font: 400 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  letter-spacing: .0125em;
+  -webkit-font-smoothing: antialiased;
+}
+
+.wrap { max-width: 1080px; margin: 0 auto; padding: 24px 16px 96px; }
+
+/* ---------------------------------------------------------- state layers -- */
+/* MD3 expresses hover/focus/press as a translucent layer of the "on" colour
+   over the component, never as opacity changes on the component itself. */
+.state { position: relative; isolation: isolate; }
+.state::after {
+  content: ''; position: absolute; inset: 0; border-radius: inherit;
+  background: currentColor; opacity: 0; pointer-events: none;
+  transition: opacity var(--md-dur-short) var(--md-ease-standard);
+}
+.state:hover::after { opacity: var(--md-state-hover); }
+.state:focus-visible::after { opacity: var(--md-state-focus); }
+.state:active::after { opacity: var(--md-state-press); }
+
+/* Ripple, MD3's press signature. app.js injects the span; it expands from the
+   pointer and fades, then removes itself. */
+.ripple {
+  position: absolute; border-radius: 50%; transform: scale(0);
+  background: currentColor; opacity: .12; pointer-events: none;
+  animation: ripple 450ms var(--md-ease-standard) forwards;
+}
+@keyframes ripple { to { transform: scale(1); opacity: 0; } }
+
+/* --------------------------------------------------------------- header -- */
+header {
+  display: flex; align-items: center; gap: 8px;
+  margin-bottom: 24px; flex-wrap: wrap; min-height: 64px;
+}
+.brand {
+  margin-right: auto;
+  font-size: 22px; line-height: 28px; font-weight: 400; letter-spacing: 0;
+}
+.brand span { color: var(--md-on-surface-variant); font-size: 16px; }
+
+/* --------------------------------------------------------------- buttons -- */
+button {
+  font: 500 14px/20px inherit; letter-spacing: .00714em;
+  font-family: inherit; cursor: pointer;
+  border: none; background: none; color: var(--md-primary);
+  border-radius: var(--md-corner-full);
+  padding: 10px 24px; min-height: 40px;
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  transition: box-shadow var(--md-dur-short) var(--md-ease-standard),
+              background-color var(--md-dur-short) var(--md-ease-standard);
+  overflow: hidden;
+}
+button:focus-visible { outline: 3px solid var(--md-primary); outline-offset: 2px; }
+
+/* Filled: the one high-emphasis action per view. */
+.btn-primary { background: var(--md-primary); color: var(--md-on-primary); }
+.btn-primary:hover { box-shadow: var(--md-elev-1); }
+.btn-stop { background: var(--md-error); color: var(--md-on-error); }
+
+/* Outlined: medium emphasis. */
+.btn-outlined { border: 1px solid var(--md-outline); color: var(--md-primary); }
+
+/* Text: low emphasis, tighter padding per spec. */
+.btn-text { padding: 10px 12px; }
+
+/* Icon button: 40px target, circular state layer. */
+.btn-icon {
+  padding: 8px; min-width: 40px; width: 40px; height: 40px;
+  color: var(--md-on-surface-variant); border-radius: var(--md-corner-full);
+}
+
+@media (pointer: coarse) {
+  button, .btn-icon { min-height: 48px; }
+  .btn-icon { width: 48px; height: 48px; }
+  .row-actions button { min-height: 44px; }
+}
+
+/* ---------------------------------------------------- outlined text field -- */
+/* MD3 outlined field with a floating label. The label is a real <label>, which
+   also retires the placeholder-as-label pattern this UI used before. */
+.field { position: relative; display: flex; min-width: 0; }
+.field > input,
+.field > select {
+  width: 100%; min-width: 0;
+  font: 400 16px/24px inherit; font-family: inherit; letter-spacing: .03125em;
+  color: var(--md-on-surface);
+  background: transparent;
+  border: 1px solid var(--md-outline);
+  border-radius: var(--md-corner-xs);
+  padding: 16px;
+  height: 56px;
+  transition: border-color var(--md-dur-short) var(--md-ease-standard);
+}
+.field > input::placeholder { color: transparent; }
+.field > input:focus,
+.field > select:focus {
+  outline: none;
+  border-color: var(--md-primary);
+  box-shadow: inset 0 0 0 1px var(--md-primary);
+}
+.field > label {
+  position: absolute; left: 12px; top: 16px;
+  padding: 0 4px;
+  color: var(--md-on-surface-variant);
+  font: 400 16px/24px inherit; letter-spacing: .03125em;
+  background: var(--field-bg);
+  pointer-events: none;
+  transform-origin: left top;
+  transition: transform var(--md-dur-short) var(--md-ease-emphasized),
+              color var(--md-dur-short) var(--md-ease-standard);
+}
+/* date/time inputs always render a value shell, so :placeholder-shown never
+   matches and their label must float permanently or it sits on the value. */
+.field > input:focus ~ label,
+.field > input:not(:placeholder-shown) ~ label,
+.field > input[type="date"] ~ label,
+.field > input[type="time"] ~ label,
+.field > select ~ label {
+  transform: translateY(-24px) scale(.75);
+}
+.field > input:focus ~ label,
+.field > select:focus ~ label { color: var(--md-primary); }
+
+/* Compact variant for the dense timer bar. */
+.field.dense > input, .field.dense > select { height: 48px; padding: 12px; }
+.field.dense > label { top: 12px; }
+.field.dense > input:focus ~ label,
+.field.dense > input:not(:placeholder-shown) ~ label,
+.field.dense > input[type="date"] ~ label,
+.field.dense > input[type="time"] ~ label,
+.field.dense > select ~ label { transform: translateY(-20px) scale(.75); }
+
+/* ----------------------------------------------------------------- timer -- */
+.timer {
+  background: var(--md-surface-container-low);
+  border-radius: var(--md-corner-lg);
+  padding: 16px; margin-bottom: 24px;
+  display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+  --field-bg: var(--md-surface-container-low);
+}
+.timer .fields { display: flex; gap: 12px; flex: 1 1 320px; flex-wrap: wrap; }
+.timer .fields .field { flex: 1 1 160px; }
+.timer .fields .field.tags { flex: 0 1 120px; }
+
+/* Same trap as .banner: an author `display` overrides the UA [hidden] rule, so
+   the field stayed visible with no timer running. */
+.since[hidden] { display: none; }
+.since {
+  display: inline-flex; align-items: center; gap: 8px;
+  color: var(--md-on-surface-variant);
+  font-size: 12px; line-height: 16px; letter-spacing: .03333em;
+}
+.since input {
+  font: inherit; color: inherit; background: transparent;
+  border: 1px solid var(--md-outline); border-radius: var(--md-corner-xs);
+  padding: 6px 8px; font-variant-numeric: tabular-nums;
+}
+
+.elapsed {
+  font-size: 36px; line-height: 44px; font-weight: 400; letter-spacing: 0;
+  font-variant-numeric: tabular-nums; min-width: 132px; text-align: right;
+}
+.elapsed.idle { color: var(--md-on-surface-variant); }
+
+.dot { width: 12px; height: 12px; border-radius: 50%; flex: none; display: inline-block; }
+.pulse { animation: pulse 2s var(--md-ease-standard) infinite; }
+@keyframes pulse { 50% { opacity: .35; } }
+
+/* ----------------------------------------------------------------- tiles -- */
+.tiles {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 16px; margin-bottom: 24px;
+}
+/* Filled card: MD3 prefers a tonal container over a border for grouping. */
+.tile {
+  background: var(--md-surface-container);
+  border-radius: var(--md-corner-md);
+  padding: 16px;
+}
+.tile .label {
+  color: var(--md-on-surface-variant);
+  font-size: 14px; line-height: 20px; letter-spacing: .01786em;
+}
+.tile .value {
+  font-size: 28px; line-height: 36px; letter-spacing: 0; margin-top: 4px;
+}
+.tile.hero { background: var(--md-primary-container); color: var(--md-on-primary-container); }
+.tile.hero .label { color: var(--md-on-primary-container); }
+.tile.hero .value { font-size: 45px; line-height: 52px; }
+
+/* ----------------------------------------------------------------- chips -- */
+.filters { display: flex; gap: 8px; align-items: center; margin-bottom: 16px; flex-wrap: wrap; }
+.filters .spacer { margin-left: auto; }
+
+/* MD3 filter chip: 32px tall, 8px corner — chips are NOT pill-shaped in MD3. */
+.chip {
+  height: 32px; min-height: 32px; padding: 6px 16px;
+  border-radius: var(--md-corner-sm);
+  border: 1px solid var(--md-outline);
+  background: transparent; color: var(--md-on-surface-variant);
+  font: 500 14px/20px inherit; letter-spacing: .00714em;
+}
+.chip[aria-pressed="true"] {
+  background: var(--md-secondary-container);
+  color: var(--md-on-secondary-container);
+  border-color: transparent;
+  padding-left: 8px;
+}
+/* Selected chips carry a leading checkmark, so selection is not colour-only. */
+.chip[aria-pressed="true"]::before {
+  content: ''; width: 18px; height: 18px; flex: none;
+  background: currentColor;
+  -webkit-mask: var(--check) center / 18px no-repeat;
+  mask: var(--check) center / 18px no-repeat;
+}
+:root {
+  --check: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M9 16.2 4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z'/%3E%3C/svg%3E");
+}
+@media (pointer: coarse) { .chip { height: 44px; min-height: 44px; } }
+
+/* ---------------------------------------------------------------- charts -- */
+.charts { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 24px; }
+@media (max-width: 840px) { .charts { grid-template-columns: 1fr; } }
+
+/* Elevated card. */
+.card {
+  background: var(--md-surface-container-low);
+  border-radius: var(--md-corner-md);
+  box-shadow: var(--md-elev-1);
+  padding: 16px;
+  position: relative; min-width: 0;
+  --field-bg: var(--md-surface-container-low);
+}
+.card h2 {
+  font-size: 16px; line-height: 24px; font-weight: 500; letter-spacing: .00937em;
+  margin: 0 0 2px;
+}
+.card .sub {
+  color: var(--md-on-surface-variant);
+  font-size: 14px; line-height: 20px; letter-spacing: .01786em;
+  margin-bottom: 16px;
+}
+/* Charts are hand-built SVG that must fill their card. Scoped to .chart-host
+   on purpose: as a bare `svg` rule it also caught every icon in the UI and
+   stretched them to their container's width. */
+.chart-host svg { display: block; width: 100%; overflow: visible; }
+.chart-host path { cursor: crosshair; }
+
+/* Icons size from their own width/height attributes and never flex. */
+button svg, .field svg, .md-menu svg { flex: none; display: block; }
+.tick {
+  fill: var(--md-on-surface-variant);
+  font-size: 11px; letter-spacing: .05em; font-variant-numeric: tabular-nums;
+}
+.mark-label { fill: var(--md-on-surface); font-size: 12px; letter-spacing: .03333em; }
+.mark-value {
+  fill: var(--md-on-surface-variant); font-size: 12px;
+  letter-spacing: .03333em; font-variant-numeric: tabular-nums;
+}
+
+.legend {
+  display: flex; flex-wrap: wrap; gap: 8px 16px; margin-top: 16px;
+  font-size: 12px; line-height: 16px; letter-spacing: .03333em;
+  color: var(--md-on-surface-variant);
+}
+.legend span { display: inline-flex; align-items: center; gap: 8px; }
+
+/* MD3 plain tooltip. */
+.tooltip {
+  position: absolute; pointer-events: none; opacity: 0;
+  transform: translate(-50%, -100%);
+  background: var(--md-inverse-surface); color: var(--md-inverse-on-surface);
+  border-radius: var(--md-corner-xs);
+  padding: 4px 8px; font-size: 12px; line-height: 16px; letter-spacing: .03333em;
+  white-space: nowrap; z-index: 5;
+  transition: opacity var(--md-dur-short) var(--md-ease-standard);
+}
+.tooltip strong { font-variant-numeric: tabular-nums; font-weight: 500; }
+
+.empty {
+  color: var(--md-on-surface-variant); font-size: 14px; line-height: 20px;
+  padding: 32px 0; text-align: center;
+}
+
+/* --------------------------------------------------------------- loading -- */
+@keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+
+body.is-loading .tile .value,
+body.is-loading .chart-host,
+body.is-loading #entries-table {
+  background: linear-gradient(90deg,
+    var(--md-surface-variant) 25%, var(--md-surface-container-highest) 50%,
+    var(--md-surface-variant) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.3s linear infinite;
+  border-radius: var(--md-corner-xs);
+  color: transparent;
+}
+body.is-loading .tile .value { display: inline-block; min-width: 4ch; }
+body.is-loading .tile.hero .value { min-width: 5ch; }
+body.is-loading .chart-host { height: 200px; }
+body.is-loading #entries-table { height: 132px; }
+
+/* ---------------------------------------------------------------- banner -- */
+.banner {
+  display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+  background: var(--md-error-container); color: var(--md-on-error-container);
+  border-radius: var(--md-corner-md);
+  padding: 12px 16px; margin-bottom: 24px;
+  font-size: 14px; line-height: 20px; letter-spacing: .01786em;
+}
+/* An author `display` beats the UA [hidden] rule, so restate it. */
+.banner[hidden] { display: none; }
+.banner .msg { flex: 1 1 200px; min-width: 0; }
+.banner button { color: var(--md-on-error-container); }
+
+/* ---------------------------------------------------------------- tables -- */
+.table-scroll { overflow-x: auto; overscroll-behavior-x: contain; }
+.table-scroll table { min-width: 580px; }
+
+table { width: 100%; border-collapse: collapse; }
+th {
+  text-align: left; color: var(--md-on-surface-variant);
+  font: 500 12px/16px inherit; letter-spacing: .04167em;
+  padding: 12px 8px;
+  border-bottom: 1px solid var(--md-outline-variant);
+}
+td {
+  padding: 12px 8px; vertical-align: middle;
+  font-size: 14px; line-height: 20px; letter-spacing: .01786em;
+  border-bottom: 1px solid var(--md-outline-variant);
+}
+tr:last-child td { border-bottom: none; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+.row-actions { white-space: nowrap; }
+.row-actions button { padding: 8px 12px; min-height: 32px; }
+.row-actions button + button { margin-left: 4px; }
+.muted { color: var(--md-on-surface-variant); }
+.proj-cell { display: inline-flex; align-items: center; gap: 8px; }
+.proj-cell a { color: var(--md-primary); text-decoration: none; }
+.proj-cell a:hover { text-decoration: underline; }
+
+details.table-view { margin-top: 16px; }
+details.table-view summary {
+  cursor: pointer; font-size: 14px; color: var(--md-on-surface-variant);
+}
+
+/* ---------------------------------------------------------------- dialog -- */
+dialog {
+  border: none;
+  border-radius: var(--md-corner-xl);
+  background: var(--md-surface-container-high);
+  color: var(--md-on-surface);
+  box-shadow: var(--md-elev-3);
+  padding: 24px;
+  width: min(560px, calc(100vw - 48px));
+  --field-bg: var(--md-surface-container-high);
+}
+dialog::backdrop { background: var(--md-scrim); }
+dialog h2 {
+  font-size: 24px; line-height: 32px; font-weight: 400; letter-spacing: 0;
+  margin: 0 0 16px;
+}
+dialog .field { margin-bottom: 20px; }
+dialog .row { display: flex; gap: 12px; flex-wrap: wrap; }
+dialog .row .field { flex: 1 1 140px; }
+.dialog-actions {
+  display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px;
+}
+.dialog-error {
+  color: var(--md-error); font-size: 14px; line-height: 20px; margin: 0 0 16px;
+}
+
+/* -------------------------------------------------------------- snackbar -- */
+/* MD3 snackbar: inverse surface, 4px corner, anchored bottom-start on desktop. */
+.toast {
+  position: fixed; bottom: 16px; left: 16px;
+  background: var(--md-inverse-surface); color: var(--md-inverse-on-surface);
+  padding: 14px 16px; border-radius: var(--md-corner-xs);
+  box-shadow: var(--md-elev-3);
+  font-size: 14px; line-height: 20px; letter-spacing: .01786em;
+  min-height: 48px; display: flex; align-items: center;
+  max-width: min(560px, calc(100vw - 32px));
+  opacity: 0; transform: translateY(8px);
+  transition: opacity var(--md-dur-medium) var(--md-ease-standard),
+              transform var(--md-dur-medium) var(--md-ease-emphasized);
+  pointer-events: none; z-index: 20;
+}
+.toast.show { opacity: 1; transform: translateY(0); }
+@media (max-width: 600px) { .toast { left: 8px; right: 8px; bottom: 8px; } }
+
+/* ----------------------------------------------------------- preferences -- */
+@media (prefers-reduced-motion: reduce) {
+  .pulse { animation: none; }
+  .ripple { display: none; }
+  body.is-loading .tile .value,
+  body.is-loading .chart-host,
+  body.is-loading #entries-table { animation: none; }
+  *, *::before, *::after {
+    transition-duration: 1ms !important;
+    animation-duration: 1ms !important;
+  }
+}
+
+@media (forced-colors: active) {
+  .card, .tile, .timer, .banner { border: 1px solid CanvasText; }
+  .field > input, .field > select { border: 1px solid CanvasText; }
+  .state::after, .ripple { display: none; }
+}
+
+/* ==========================================================================
+   MD3 component layer (public/md.js)
+   Custom replacements for <select>, <datalist>, date/time pickers, confirm()
+   and native title= tooltips.
+   ========================================================================== */
+
+/* ------------------------------------------------------------------ menu -- */
+.md-menu {
+  position: fixed; z-index: 60;
+  background: var(--md-surface-container); color: var(--md-on-surface);
+  border-radius: var(--md-corner-xs);
+  box-shadow: var(--md-elev-2);
+  padding: 8px 0; margin: 0;
+  max-height: 320px; overflow-y: auto;
+  min-width: 112px; max-width: 320px;
+}
+.md-menu[hidden] { display: none; }
+.md-menu-item {
+  display: flex; align-items: center; gap: 12px;
+  padding: 0 12px; height: 48px;
+  font-size: 14px; line-height: 20px; letter-spacing: .00714em;
+  cursor: pointer; user-select: none;
+  color: var(--md-on-surface);
+}
+/* Keyboard highlight. Distinct from :hover so pointer and keyboard can
+   disagree without one silently overriding the other. */
+.md-menu-item.active { background: color-mix(in srgb, currentColor 12%, transparent); }
+.md-menu-item[aria-selected="true"] { color: var(--md-on-secondary-container); }
+.md-menu-check {
+  margin-left: auto; width: 18px; height: 18px; flex: none;
+  background: currentColor;
+  -webkit-mask: var(--check) center / 18px no-repeat;
+  mask: var(--check) center / 18px no-repeat;
+}
+
+/* ---------------------------------------------------------------- select -- */
+.md-select { position: relative; }
+/* Long project names must not squeeze the trigger to an ellipsis. */
+header .md-select { min-width: 190px; }
+.md-select-trigger {
+  width: 100%; height: 48px;
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 12px; border-radius: var(--md-corner-xs);
+  border: 1px solid var(--md-outline);
+  background: transparent; color: var(--md-on-surface);
+  font: 400 16px/24px inherit; letter-spacing: .03125em;
+  text-align: left; min-height: 48px;
+}
+.md-select-trigger[aria-expanded="true"] {
+  border-color: var(--md-primary);
+  box-shadow: inset 0 0 0 1px var(--md-primary);
+}
+.md-select-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A select always shows a value, so its label is permanently floated. */
+.md-select-label {
+  position: absolute; left: 12px; top: 12px;
+  padding: 0 4px; background: var(--field-bg);
+  color: var(--md-on-surface-variant);
+  font: 400 16px/24px inherit; letter-spacing: .03125em;
+  pointer-events: none; transform-origin: left top;
+  transform: translateY(-20px) scale(.75);
+  transition: color var(--md-dur-short) var(--md-ease-standard);
+}
+.md-select-trigger[aria-expanded="true"] ~ .md-select-label { color: var(--md-primary); }
+
+/* -------------------------------------------------- text-field trailing -- */
+.md-field-trailing {
+  position: absolute; right: 4px; top: 50%; transform: translateY(-50%);
+  width: 40px; height: 40px; min-height: 40px; padding: 8px;
+  color: var(--md-on-surface-variant);
+}
+.field > input.has-trailing { padding-right: 48px; }
+.since { position: relative; }
+.since input.has-trailing { padding-right: 36px; }
+.since .md-field-trailing { width: 32px; height: 32px; min-height: 32px; padding: 6px; right: 0; }
+
+/* ----------------------------------------------------------- date picker -- */
+.md-datepicker {
+  position: fixed; z-index: 60;
+  background: var(--md-surface-container-high); color: var(--md-on-surface);
+  border-radius: var(--md-corner-lg);
+  box-shadow: var(--md-elev-3);
+  padding: 12px; width: 328px;
+}
+.md-datepicker[hidden] { display: none; }
+.md-dp-head { display: flex; align-items: center; gap: 4px; margin-bottom: 8px; }
+.md-dp-title {
+  flex: 1; text-align: center;
+  font-size: 14px; line-height: 20px; font-weight: 500; letter-spacing: .00714em;
+}
+.md-dp-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+.md-dp-wd {
+  height: 32px; display: flex; align-items: center; justify-content: center;
+  color: var(--md-on-surface-variant);
+  font-size: 12px; line-height: 16px; font-weight: 500;
+}
+.md-dp-day {
+  height: 40px; width: 100%; min-height: 40px; padding: 0;
+  border-radius: var(--md-corner-full);
+  background: transparent; color: var(--md-on-surface);
+  font: 400 14px/20px inherit; letter-spacing: .01786em;
+}
+.md-dp-day.today { box-shadow: inset 0 0 0 1px var(--md-primary); color: var(--md-primary); }
+.md-dp-day.selected {
+  background: var(--md-primary); color: var(--md-on-primary);
+}
+.md-dp-foot { display: flex; justify-content: space-between; margin-top: 8px; }
+
+/* ----------------------------------------------------------- time picker -- */
+.md-timepicker {
+  position: fixed; z-index: 60;
+  background: var(--md-surface-container-high); color: var(--md-on-surface);
+  border-radius: var(--md-corner-lg);
+  box-shadow: var(--md-elev-3);
+  padding: 16px;
+}
+.md-timepicker[hidden] { display: none; }
+.md-tp-row { display: flex; align-items: flex-start; gap: 8px; }
+.md-tp-field { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.md-tp-input {
+  width: 72px; height: 64px; text-align: center;
+  font: 400 32px/40px inherit; letter-spacing: 0;
+  font-variant-numeric: tabular-nums;
+  color: var(--md-on-surface);
+  background: var(--md-surface-container-highest);
+  border: 1px solid transparent; border-radius: var(--md-corner-sm);
+}
+.md-tp-input:focus {
+  outline: none; border-color: var(--md-primary);
+  box-shadow: inset 0 0 0 1px var(--md-primary);
+}
+.md-tp-cap {
+  font-size: 12px; line-height: 16px; letter-spacing: .03333em;
+  color: var(--md-on-surface-variant);
+}
+.md-tp-sep {
+  font-size: 32px; line-height: 64px; color: var(--md-on-surface);
+}
+.md-tp-ampm {
+  display: flex; flex-direction: column; margin-left: 4px;
+  border: 1px solid var(--md-outline); border-radius: var(--md-corner-sm);
+  overflow: hidden;
+}
+.md-tp-period {
+  min-height: 32px; height: 32px; padding: 4px 12px; border-radius: 0;
+  color: var(--md-on-surface-variant); background: transparent;
+  font: 500 14px/20px inherit;
+}
+.md-tp-period[aria-checked="true"] {
+  background: var(--md-tertiary-container); color: var(--md-on-tertiary-container);
+}
+.md-tp-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+
+/* --------------------------------------------------------------- confirm -- */
+.md-confirm {
+  border: none; border-radius: var(--md-corner-xl);
+  background: var(--md-surface-container-high); color: var(--md-on-surface);
+  box-shadow: var(--md-elev-3);
+  padding: 24px; width: min(400px, calc(100vw - 48px));
+}
+.md-confirm::backdrop { background: var(--md-scrim); }
+.md-confirm h2 {
+  font-size: 24px; line-height: 32px; font-weight: 400; margin: 0 0 16px;
+}
+.md-confirm p {
+  color: var(--md-on-surface-variant);
+  font-size: 14px; line-height: 20px; letter-spacing: .01786em;
+  margin: 0 0 24px;
+}
+
+/* --------------------------------------------------------------- tooltip -- */
+.md-tooltip {
+  position: fixed; z-index: 70; pointer-events: none;
+  background: var(--md-inverse-surface); color: var(--md-inverse-on-surface);
+  border-radius: var(--md-corner-xs);
+  padding: 4px 8px; max-width: 240px;
+  font-size: 12px; line-height: 16px; letter-spacing: .03333em;
+  opacity: 0; transition: opacity var(--md-dur-short) var(--md-ease-standard);
+}
+.md-tooltip[hidden] { display: none; }
+.md-tooltip.show { opacity: 1; }
+
+@media (forced-colors: active) {
+  .md-menu, .md-datepicker, .md-timepicker, .md-confirm { border: 1px solid CanvasText; }
+  .md-dp-day.selected { forced-color-adjust: none; }
+}

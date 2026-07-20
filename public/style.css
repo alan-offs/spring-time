@@ -190,7 +190,7 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-.wrap { max-width: 1080px; margin: 0 auto; padding: 24px 16px 96px; }
+.wrap { width: 100%; margin: 0; padding: 24px 16px 96px; }
 
 /* ---------------------------------------------------------- state layers -- */
 /* MD3 expresses hover/focus/press as a translucent layer of the "on" colour
@@ -285,9 +285,13 @@ button:focus-visible { outline: 3px solid var(--md-primary); outline-offset: 2px
   border-color: var(--md-primary);
   box-shadow: inset 0 0 0 1px var(--md-primary);
 }
+/* The label is out of flow but still capped by .field's width, so without
+   nowrap a long one wraps and its opaque background paints over the value. */
 .field > label {
   position: absolute; left: 12px; top: 16px;
   padding: 0 4px;
+  max-width: calc(100% - 24px);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   color: var(--md-on-surface-variant);
   font: 400 16px/24px inherit; letter-spacing: .03125em;
   background: var(--field-bg);
@@ -326,8 +330,9 @@ button:focus-visible { outline: 3px solid var(--md-primary); outline-offset: 2px
   --field-bg: var(--md-surface-container-low);
 }
 .timer .fields { display: flex; gap: 12px; flex: 1 1 320px; flex-wrap: wrap; }
-.timer .fields .field { flex: 1 1 160px; }
-.timer .fields .field.tags { flex: 0 1 120px; }
+.timer .fields .field { flex: 1 1 140px; }
+.timer .fields .field.desc { flex: 2 1 235px; }
+.timer .fields .field.tags { flex: 0 1 104px; }
 
 /* Same trap as .banner: an author `display` overrides the UA [hidden] rule, so
    the field stayed visible with no timer running. */
@@ -652,6 +657,8 @@ header .md-select { min-width: 190px; }
 .md-select-label {
   position: absolute; left: 12px; top: 12px;
   padding: 0 4px; background: var(--field-bg);
+  max-width: calc(100% - 24px);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   color: var(--md-on-surface-variant);
   font: 400 16px/24px inherit; letter-spacing: .03125em;
   pointer-events: none; transform-origin: left top;

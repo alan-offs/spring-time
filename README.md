@@ -142,6 +142,37 @@ context, so the service worker and install prompt work without HTTPS.
 
 Install `/p/acme-api` directly and that window opens straight into that project.
 
+## macOS menu bar
+
+A small companion app puts the running timer in the menu bar — `▶ 1:24:05 · F45`
+while a timer runs, today's total when none does — and its dropdown can stop the
+timer, start any project, and open the dashboard.
+
+**Open dashboard** prefers the dashboard installed as an app (see above) and only
+falls back to a browser tab when it isn't installed. It finds the installed app by
+the start URL recorded in the bundle rather than by name — Chromium names the
+bundle from the page title, so this one installs as `worktime.app` even though the
+manifest says `SpringTime` — which also means an app installed against a different
+port correctly doesn't match. To check what it would do:
+
+```bash
+menubar/build/Worktime.app/Contents/MacOS/Worktime --which-app
+```
+
+```bash
+./scripts/build-menubar.sh          # → menubar/build/Worktime.app
+open menubar/build/Worktime.app
+```
+
+It needs the Xcode command line tools for `swiftc` (`xcode-select --install`),
+which is the only thing in this repo that does. Nothing else changes: the app is
+another client of the same local API, so it, the CLI and the dashboard stay in
+agreement — the running timer lives in SQLite, not in any one of them.
+
+To keep it running, add the built app under **System Settings → General → Login
+Items**. It reads `WT_PORT` / `WT_TOKEN` the same way the CLI does, config file
+included.
+
 ## Configuration
 
 Read from the environment, or persisted to `~/.worktime/config.json` by `wt install`.

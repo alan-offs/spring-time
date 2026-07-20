@@ -17,6 +17,7 @@ node --test --test-name-pattern 'slugify'  # one test / describe block
 npm run dev                                # server with --watch
 npm run icons                              # regenerate public/icon-*.png from icon.svg
 node bin/wt.js <cmd>                       # run the CLI without npm link
+bash scripts/build-menubar.sh              # macOS menu bar app (needs Xcode CLT)
 ```
 
 ## Hard constraints
@@ -67,7 +68,29 @@ Three semantics that tests depend on and that are easy to break:
 
 **`public/`** — no framework: `app.js` renders DOM directly, the chart is hand-built
 SVG. `sw.js` caches the app shell but always passes `/api/*` to the network so time
-data is never stale-served; bump the `CACHE` constant when shell files change.
+data is never stale-served; bump the `CACHE` constant when shell files change (and
+add the file to `SHELL` if it's new).
+
+**`public/md.js`** — an MD3 component layer that `app.js` imports, and the reason
+"no framework" doesn't mean "native widgets". It **replaces** every browser/OS-rendered
+control — `<select>`, `<datalist>`, `date`/`time` inputs, `confirm()`, `title=`
+tooltips — with custom equivalents (`createSelect`, `attachAutocomplete`,
+`attachDatePicker`, `attachTimePicker`, `choiceDialog`, `confirmDialog`,
+`initTooltips`). Replacing a native control means re-implementing what the browser
+gave away for free, so most of the file is roles, keyboard model and focus
+handling rather than visuals — budget for that when touching it. Two rules it
+encodes: `<dialog>` is the one native element deliberately kept (top-layer
+stacking, backdrop, real focus trap), and popups are body-mounted `position:
+fixed` so no ancestor's `overflow` can clip them — re-homed into an open
+`<dialog>` when their anchor lives there. Build new UI on these, not on raw
+native controls.
+
+**`menubar/`** — an optional macOS status-bar app (`WorktimeMenuBar.swift`, built
+by `scripts/build-menubar.sh` with bare `swiftc`, no Xcode project or SwiftPM
+manifest). Like the CLI it is a **thin client over `/api/*`** — it polls
+`GET /api/state` every 5s and ticks the digits locally in between — so new
+capability still belongs in `src/api.js`, never in the Swift. It is the one part
+of the repo that needs a toolchain (Xcode CLT); the Node side stays build-free.
 
 ## Color palette
 

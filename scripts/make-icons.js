@@ -5,14 +5,24 @@ import { deflateSync } from 'node:zlib';
 import { writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
-const BG = [0x2a, 0x78, 0xd6];
+// Spring-green diagonal gradient (top-left -> bottom-right), plus cream ink and
+// an amber accent for the second hand and hub. Kept in sync with public/icon.svg.
+const G0 = [0x34, 0xd3, 0x99];
+const G1 = [0x0d, 0x94, 0x88];
 const FG = [0xfc, 0xfc, 0xfb];
+const ACCENT = [0xfb, 0xbf, 0x24];
 
 /** Signed distance from p to the segment ab. */
 function distToSegment(px, py, ax, ay, bx, by) {
   const dx = bx - ax, dy = by - ay;
   const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy)));
   return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
+}
+
+/** Background gradient colour at pixel (x, y), diagonal 0..1024. */
+function bgAt(x, y) {
+  const t = Math.max(0, Math.min(1, (x + y) / 1024));
+  return [G0[0] + (G1[0] - G0[0]) * t, G0[1] + (G1[1] - G0[1]) * t, G0[2] + (G1[2] - G0[2]) * t];
 }
 
 /** Coverage of the icon artwork at unit coordinates (0..1), supersampled. */
@@ -24,13 +34,27 @@ function sample(u, v) {
   const ry = Math.max(Math.abs(y - 256) - (256 - 114), 0);
   if (Math.hypot(rx, ry) > 114) return null;
 
+  // Amber hub and second hand sit on top of everything.
+  if (Math.hypot(x - 256, y - 256) <= 17) return ACCENT;
+  if (distToSegment(x, y, 256, 256, 336, 371) <= 5) return ACCENT;
+
+  // Cream hands, posed at 10:10 (round caps => half-stroke radii).
+  if (distToSegment(x, y, 256, 256, 178, 201) <= 14) return FG;
+  if (distToSegment(x, y, 256, 256, 369, 191) <= 12) return FG;
+
   const r = Math.hypot(x - 256, y - 256);
-  // Dial ring: radius 150, stroke 30.
-  if (Math.abs(r - 150) <= 15) return FG;
-  // Hands: vertical 154->262, then out to (330, 312); round caps => 15px radius.
-  if (distToSegment(x, y, 256, 154, 256, 262) <= 15) return FG;
-  if (distToSegment(x, y, 256, 262, 330, 312) <= 15) return FG;
-  return BG;
+  // Dial ring: radius 150, stroke 26.
+  if (Math.abs(r - 150) <= 13) return FG;
+
+  // Twelve hour ticks just inside the ring; major ticks (12/3/6/9) run longer.
+  for (let k = 0; k < 12; k++) {
+    const a = (k * Math.PI) / 6, ux = Math.sin(a), uy = -Math.cos(a);
+    const major = k % 3 === 0;
+    const inner = major ? 106 : 118, hw = major ? 5 : 3.5;
+    if (distToSegment(x, y, 256 + inner * ux, 256 + inner * uy, 256 + 130 * ux, 256 + 130 * uy) <= hw) return FG;
+  }
+
+  return bgAt(x, y);
 }
 
 function render(size) {

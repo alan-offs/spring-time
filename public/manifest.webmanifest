@@ -1,6 +1,6 @@
 {
-  "name": "worktime",
-  "short_name": "worktime",
+  "name": "SpringTime",
+  "short_name": "SpringTime",
   "description": "Track working time per project.",
   "start_url": "/",
   "scope": "/",

@@ -33,10 +33,21 @@ when you'd rather not leave the shell.
 ## Install
 
 ```bash
-cd internal_tools
-npm link          # puts `wt` on your PATH
-wt install        # autostart at login (launchd) + alias instructions
+git clone git@github.com:alan-offs/spring-time.git ~/spring-time
+cd ~/spring-time
+./install.sh          # links `wt`, sets macOS autostart, prints next steps
 ```
+
+Or in one line:
+
+```bash
+git clone git@github.com:alan-offs/spring-time.git ~/spring-time && cd ~/spring-time && ./install.sh
+```
+
+`install.sh` checks for Node ≥ 22.5, puts `wt` on your PATH (`npm link`, or a shell
+alias if linking needs perms), and runs `wt install` for launchd autostart. It's
+idempotent — safe to re-run. Then `wt start` and you're tracking; Google sign-in
+and team-sheet reporting work out of the box (see below).
 
 Prefer not to touch your global npm? Add an alias instead:
 
@@ -46,6 +57,26 @@ echo 'alias wt="node '"$PWD"'/bin/wt.js"' >> ~/.zshrc && source ~/.zshrc
 
 Any timer or report command boots the server automatically if it isn't running,
 so there is nothing to remember.
+
+> **Platforms.** Autostart, the menu-bar app and the installed-PWA launch are
+> macOS-only. On Linux/Windows everything else works — just start the server with
+> `wt up` (or leave it running with `wt serve`).
+
+## Updating
+
+After install you never touch the terminal to stay current:
+
+- **On login/boot** the server does a best-effort `git pull --ff-only` before it
+  starts, so every restart runs the latest version. (Offline or local edits? It
+  quietly skips and starts anyway.)
+- **While the dashboard is open**, an **Update available** banner appears when new
+  commits land upstream. Click **Update now** — the server pulls, restarts, and
+  the page reloads onto the new version. A running timer keeps running.
+
+Manual equivalent, any time: `wt update` (fast-forward only — it never rewrites
+local work; a dirty checkout is left for you to resolve). Updates come from
+whatever remote your checkout tracks, so a shared repo is all the "deploy" there
+is — push a commit and everyone picks it up.
 
 ## One URL per project
 
@@ -80,6 +111,7 @@ APP
   wt open [project]        open the dashboard (or a project page)
   wt up / wt down          start / stop the background server
   wt serve                 run the server in the foreground
+  wt update                pull the latest version and restart
   wt install / uninstall   autostart at login
 ```
 
@@ -116,6 +148,13 @@ Everything the dashboard does is a documented endpoint. Base `http://localhost:4
 | `GET` | `/api/reports/timeseries` | zero-filled daily series |
 | `GET` | `/api/reports/summary.csv` | CSV download |
 | `GET` | `/api/reports/entries.csv` | CSV download |
+| `GET` | `/api/auth/me` | `{enabled, user}` — the signed-in Google account, if any |
+| `GET` | `/api/auth/google` | starts sign-in; `?next=` is the path to return to |
+| `GET` | `/api/auth/google/callback` | Google's redirect target |
+| `POST` | `/api/auth/logout` | ends the session |
+| `GET` | `/api/wip/title` | WIP sheet title + whether it names this month; `?id=` |
+| `GET` | `/api/wip/row` | your matched row(s) in today's tab; `?id=` |
+| `POST` | `/api/wip/report` | write the report preview into column D of your row |
 
 `from`/`to` are inclusive local dates (`YYYY-MM-DD`) and default to the last 7 days.
 
@@ -132,6 +171,12 @@ curl -o july.csv 'localhost:4321/api/reports/entries.csv?from=2026-07-01&to=2026
 - **A running timer counts up to now**, so today's totals are always live.
 - **Multi-tagged time is divided evenly between its tags**, so tag totals sum to
   the overall total instead of double counting.
+
+## Entries list
+
+The dashboard groups entries by project, and by description within each project;
+both levels collapse, and each header shows its own totals. A `/p/<slug>` page is
+already one project, so there it groups by description alone.
 
 ## Install as an app
 
@@ -188,10 +233,57 @@ your machine (e.g. through a tunnel), since the API is otherwise unauthenticated
 
 Data lives in one SQLite file — back it up by copying `~/.worktime/worktime.db`.
 
+### Google sign-in
+
+**For teammates this just works** — a shared team OAuth client is baked into the
+build, so after cloning the dashboard already shows a **Sign in** button next to
+the theme toggle; once signed in it becomes your avatar, which opens a dialog with
+your name, email and a log-out button. Nothing to configure.
+
+#### Self-hosting with your own client (advanced)
+
+Only needed if you're running your *own* instance rather than the team build.
+Override the baked-in client by putting these in a `.env` at the repo root
+(git-ignored) or in the environment — real environment variables win over the
+file, and setting a variable to an **empty** value turns sign-in off entirely:
+
+| Variable | Meaning |
+|---|---|
+| `GOOGLE_OAUTH_CLIENT_ID` | OAuth 2.0 Web application client id |
+| `GOOGLE_OAUTH_CLIENT_SECRET` | its client secret |
+| `GOOGLE_OAUTH_REDIRECT_URI` | e.g. `http://127.0.0.1:4321/api/auth/google/callback` |
+
+Create the client under *APIs & Services → Credentials* in the Google Cloud
+console, type **Web application**, and add that exact redirect URI to
+*Authorised redirect URIs*.
+
+**This is identity, not access control.** Signing in does not gate any time
+data — `WT_TOKEN` is still the thing that protects `/api/*`, and the OAuth
+endpoints are exempt from it because Google's redirect cannot carry a bearer
+header.
+
+### Report WIP to a team Google Sheet
+
+Sign-in also requests the `spreadsheets` scope so you can push your daily report
+straight into a shared team sheet. Once signed in, paste the sheet's link or id
+into the bar under the header — its title shows there.
+
+Open **Daily report**, pick statuses and edit the preview as usual, then click
+**Report WIP** (in that dialog). It finds the row whose name matches your Google
+account — picking by **team** when a name isn't unique — and writes the preview
+text into **column D** ("What I have done for today") of today's tab, leaving
+every other cell alone. The team keeps one file per month, so if the sheet's
+title doesn't name the current month it warns and refuses to write. The sheet id
+is stored per-browser (`localStorage`), like the theme.
+
+Because the scope changed, anyone already signed in must sign in once more to
+grant it. Enable the **Google Sheets API** for your project under *APIs &
+Services → Library*.
+
 ## Development
 
 ```bash
-npm test        # 15 tests, no network or fixtures needed
+npm test        # 45 tests, no network or fixtures needed
 npm run dev     # server with --watch
 npm run icons   # regenerate PNG icons from the vector source
 ```

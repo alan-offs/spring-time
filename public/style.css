@@ -256,9 +256,39 @@ button:focus-visible { outline: 3px solid var(--md-primary); outline-offset: 2px
   color: var(--md-on-surface-variant); border-radius: var(--md-corner-full);
 }
 
+/* Google's mark is the one place the palette isn't ours, so it keeps its own
+   colours; the surrounding button stays a plain MD3 outlined button. */
+.signin { padding-left: 16px; padding-right: 20px; color: var(--md-on-surface); }
+
+/* Avatar button: same 40px circular target as .btn-icon, but the state layer
+   has to ride over the photo, hence the explicit background and overflow. */
+.avatar {
+  padding: 0; min-width: 40px; width: 40px; height: 40px;
+  border-radius: var(--md-corner-full); overflow: hidden;
+  background: var(--md-primary-container); color: var(--md-on-primary-container);
+  font: 500 15px/1 inherit;
+}
+.avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.avatar.lg { width: 72px; height: 72px; font-size: 28px; cursor: default; }
+
+/* Same trap as .banner and .since: `button` sets an author `display`, which
+   beats the UA [hidden] rule — without this both header buttons show at once. */
+.signin[hidden], .avatar[hidden] { display: none; }
+
+.account { text-align: center; padding: 8px 0 4px; }
+.account .avatar { margin: 0 auto 16px; }
+.account h2 { margin: 0 0 4px; }
+.account-email {
+  color: var(--md-on-surface-variant);
+  font-size: 14px; line-height: 20px; letter-spacing: .01786em;
+  margin: 0 0 16px; overflow-wrap: anywhere;
+}
+.logout { color: var(--md-error); }
+
 @media (pointer: coarse) {
   button, .btn-icon { min-height: 48px; }
-  .btn-icon { width: 48px; height: 48px; }
+  .btn-icon, .avatar { width: 48px; height: 48px; }
+  .avatar.lg { width: 72px; height: 72px; }
   .row-actions button { min-height: 44px; }
 }
 
@@ -320,6 +350,17 @@ button:focus-visible { outline: 3px solid var(--md-primary); outline-offset: 2px
 .field.dense > input[type="date"] ~ label,
 .field.dense > input[type="time"] ~ label,
 .field.dense > select ~ label { transform: translateY(-20px) scale(.75); }
+
+/* WIP sheet title, centered under the header (a plain text-styled button so it
+   can be clicked to change the sheet). */
+.wip-bar { display: flex; justify-content: center; margin: -8px 0 20px; }
+.wip-title {
+  max-width: 100%; padding: 6px 16px;
+  font-size: 16px; font-weight: 500;
+  color: var(--md-on-surface-variant);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.wip-title.warn { color: var(--md-error); }
 
 /* ----------------------------------------------------------------- timer -- */
 .timer {
@@ -505,6 +546,9 @@ body.is-loading #entries-table { height: 132px; }
 .banner[hidden] { display: none; }
 .banner .msg { flex: 1 1 200px; min-width: 0; }
 .banner button { color: var(--md-on-error-container); }
+/* The update notice is informational, not an error — reuse the layout, recolour. */
+.banner.info { background: var(--md-secondary-container); color: var(--md-on-secondary-container); }
+.banner.info button { color: var(--md-on-secondary-container); }
 
 /* ---------------------------------------------------------------- tables -- */
 .table-scroll { overflow-x: auto; overscroll-behavior-x: contain; }
@@ -531,6 +575,45 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .proj-cell { display: inline-flex; align-items: center; gap: 8px; }
 .proj-cell a { color: var(--md-primary); text-decoration: none; }
 .proj-cell a:hover { text-decoration: underline; }
+
+/* --------------------------------------------------------- entry grouping -- */
+/* Entries nest two deep: project, then description. A group header is a
+   full-width button standing in for a table row — dot + name left, entry count
+   and totals pushed right. Only the outer (project) header draws a separating
+   rule, so a project reads as one block rather than a stack of ruled strips. */
+.group-head td { padding: 0; border-bottom: none; }
+.group-head-project td { border-top: 1px solid var(--md-outline-variant); }
+.entry-group:first-child .group-head td { border-top: none; }
+.group-btn {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  padding: 12px 8px; background: none; border: none; cursor: pointer;
+  color: inherit; font: inherit; text-align: left;
+  border-radius: var(--md-corner-xs);
+}
+.group-btn .chevron {
+  flex: none; width: 8px; height: 8px; border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor; transform: rotate(-45deg);
+  margin: 0 2px 2px 0; color: var(--md-on-surface-variant);
+  transition: transform var(--md-dur-short) var(--md-ease-standard);
+}
+.group-btn .chevron.open { transform: rotate(45deg); margin: 0 0 0 2px; }
+/* The inner level indents to sit under its project and steps down in weight and
+   size, so depth reads without a second border or a nested container. */
+.group-description { padding-left: 32px; }
+.group-description .group-name { font-weight: 400; }
+.group-description .chevron { opacity: 0.7; }
+.group-name { font-weight: 500; }
+.group-count { font-size: 12px; }
+.group-totals {
+  margin-left: auto; white-space: nowrap;
+  color: var(--md-on-surface-variant); font-size: 13px;
+}
+.group-totals strong {
+  color: var(--md-on-surface); font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+/* Rows under a group indent past the (now empty) project column. */
+.group-indent { width: 24px; }
 
 details.table-view { margin-top: 16px; }
 details.table-view summary {
@@ -561,6 +644,67 @@ dialog .row .field { flex: 1 1 140px; }
 }
 .dialog-error {
   color: var(--md-error); font-size: 14px; line-height: 20px; margin: 0 0 16px;
+}
+
+/* ---------------------------------------------------------- daily report -- */
+/* Wider than the entry dialog: the task label is a full Linear URL, and each
+   row carries a status plus optional WIP fields alongside it. */
+#report-dialog { width: min(720px, calc(100vw - 48px)); }
+#report-dialog .sub { margin: -8px 0 12px; }
+
+#report-list { max-height: min(46vh, 420px); overflow: auto; margin-bottom: 20px; }
+#report-list:empty { margin-bottom: 0; }
+
+.report-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 4px 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--md-outline-variant);
+}
+.report-row:last-child { border-bottom: none; }
+
+.report-include { accent-color: var(--md-primary); width: 18px; height: 18px; margin: 0; }
+/* The label is the only thing that can be long, so it is the one that clips. */
+.report-label {
+  min-width: 0; cursor: pointer;
+  font-size: 14px; line-height: 20px;
+  overflow-wrap: anywhere;
+}
+.report-duration {
+  font-size: 14px; line-height: 20px; font-variant-numeric: tabular-nums;
+  color: var(--md-on-surface-variant); white-space: nowrap;
+}
+/* Controls sit under the label, indented past the checkbox column. */
+.report-controls {
+  grid-column: 2 / -1;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 12px;
+}
+.report-controls .md-select { flex: 0 0 200px; }
+.report-wip { display: flex; gap: 12px; flex: 1 1 220px; }
+.report-wip .field { flex: 1 1 100px; }
+
+.report-preview-label {
+  display: block; margin-bottom: 8px;
+  font-size: 12px; line-height: 16px; letter-spacing: .03333em;
+  color: var(--md-on-surface-variant);
+}
+#report-preview {
+  display: block; width: 100%; box-sizing: border-box;
+  font: 400 13px/20px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: var(--md-on-surface);
+  background: var(--md-surface-container-highest);
+  border: 1px solid var(--md-outline);
+  border-radius: var(--md-corner-xs);
+  padding: 12px;
+  resize: vertical;
+  margin-bottom: 8px;
+}
+#report-preview:focus { outline: none; border-color: var(--md-primary); }
+
+@media (max-width: 520px) {
+  .report-controls .md-select { flex: 1 1 100%; }
 }
 
 /* -------------------------------------------------------------- snackbar -- */

@@ -30,7 +30,8 @@ bash scripts/build-menubar.sh              # macOS menu bar app (needs Xcode CLT
 
 ## Architecture
 
-`bin/wt.js` (CLI) → HTTP → `src/server.js` → `src/api.js` → `src/reports.js` / `src/db.js`.
+`bin/wt.js` (CLI) → HTTP → `src/server.js` → `src/api.js` → `src/reports.js` /
+`src/db.js` / `src/auth.js`.
 
 The CLI is a **thin HTTP client**, not a second implementation. Timer and report
 commands call `api()` against the local server and auto-boot it (`cmdUp`, a
@@ -65,6 +66,19 @@ Three semantics that tests depend on and that are easy to break:
   `groupBy=day`;
 - a multi-tagged entry's seconds are divided evenly across its tags, so tag totals
   sum to the overall total instead of double counting.
+
+**`src/auth.js`** — optional Google sign-in, and **identity only**: no route gates
+data on it, and with `GOOGLE_OAUTH_*` unset `/api/auth/me` reports
+`enabled: false` so the dashboard hides the button entirely. `WT_TOKEN` remains
+the access control, and `/api/auth/*` is deliberately exempt from it — Google's
+redirect back is a browser navigation that cannot carry a bearer header. Config
+comes from a git-ignored repo-root `.env` via the builtin `process.loadEnvFile()`
+(still zero dependencies); real environment variables win over the file. Sessions
+are opaque random ids in a `sessions` table behind an HttpOnly `SameSite=Lax`
+cookie — Lax and not Strict because the callback navigation has to be able to
+read the CSRF state cookie. The `id_token` signature is not verified, because it
+arrives on our own TLS connection to Google's token endpoint and no client-
+submitted token is ever accepted.
 
 **`public/`** — no framework: `app.js` renders DOM directly, the chart is hand-built
 SVG. `sw.js` caches the app shell but always passes `/api/*` to the network so time

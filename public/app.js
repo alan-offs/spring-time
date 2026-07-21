@@ -4,8 +4,13 @@
 
 import {
   createSelect, attachAutocomplete, attachDatePicker, attachTimePicker,
-  confirmDialog, choiceDialog, initTooltips,
+  confirmDialog, choiceDialog, promptDialog, initTooltips,
 } from './md.js';
+
+// Statuses the dropdown always offers; user-added ones are merged in from the
+// server (any distinct status already saved) plus any added this session.
+const DEFAULT_STATUSES = ['WIP', 'Done', 'Done local', 'Ready For QA'];
+const ADD_STATUS = '__add_status__';
 
 const $ = (id) => document.getElementById(id);
 const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -25,9 +30,10 @@ const DARK_STEP = {
 
 const state = {
   scope: scopeFromURL(),
-  days: 7,
+  range: 'week',
   running: null,
   projects: [],
+  user: null,
   tick: null,
 };
 
@@ -58,6 +64,20 @@ function shiftDay(key, n) {
   return dayKey(new Date(y, m - 1, d + n));
 }
 
+/** Monday-based start of the week containing `key` (mirrors reports.js). */
+function weekStart(key) {
+  const [y, m, d] = key.split('-').map(Number);
+  const shift = (new Date(y, m - 1, d).getDay() + 6) % 7;
+  return shiftDay(key, -shift);
+}
+
+/** First / last local day of the calendar month containing `key`. */
+const monthStart = (key) => `${key.slice(0, 7)}-01`;
+const monthEnd = (key) => {
+  const [y, m] = key.split('-').map(Number);
+  return dayKey(new Date(y, m, 0));
+};
+
 function fmtDuration(seconds) {
   const h = Math.floor(seconds / 3600);
   const m = Math.floor((seconds % 3600) / 60);
@@ -87,8 +107,11 @@ function localISO(day, time) {
 }
 
 function range() {
-  const to = dayKey(new Date());
-  return { from: shiftDay(to, -(state.days - 1)), to };
+  const today = dayKey(new Date());
+  if (state.range === 'today') return { from: today, to: today };
+  if (state.range === 'month') return { from: monthStart(today), to: monthEnd(today) };
+  const mon = weekStart(today);
+  return { from: mon, to: shiftDay(mon, 6) };
 }
 
 function rangeQuery(extra = {}) {
@@ -226,7 +249,7 @@ function renderDaily(series) {
     if (i % every === 0 || i === series.length - 1) {
       svg.append(el('text', {
         x: x + barW / 2, y: H - 6, 'text-anchor': 'middle', class: 'tick',
-      }, labelDay(d.day, true)));
+      }, axisDay(d.day)));
     }
   });
 
@@ -237,12 +260,95 @@ function renderDaily(series) {
   host.append(svg);
 }
 
+/** Today's sessions laid out on a fixed 00:00–24:00 timeline, one row each. */
+function renderGantt(entries) {
+  const host = $('daily-chart');
+  host.textContent = '';
+
+  const DAY = 86400;
+  const [ty, tm, td] = range().from.split('-').map(Number);
+  const midnight = new Date(ty, tm - 1, td, 0, 0, 0, 0).getTime();
+  const secOfDay = (iso) =>
+    Math.min(DAY, Math.max(0, (new Date(iso).getTime() - midnight) / 1000));
+  const nowSec = Math.min(DAY, Math.max(0, (Date.now() - midnight) / 1000));
+
+  const rows = entries
+    .map((e) => ({ e, start: secOfDay(e.startedAt), end: e.running ? nowSec : secOfDay(e.endedAt) }))
+    .filter((r) => r.end > r.start)
+    .sort((a, b) => a.start - b.start);
+
+  const total = rows.reduce((n, r) => n + r.e.seconds, 0);
+  $('daily-sub').textContent =
+    `${rows.length} session${rows.length === 1 ? '' : 's'} · ${fmtDuration(total)} total`;
+
+  if (!rows.length) {
+    host.innerHTML = '<div class="empty">No time tracked today.</div>';
+    return;
+  }
+
+  const W = host.clientWidth || 480;
+  const rowH = 24, barH = 12;
+  const labelW = Math.min(160, Math.max(90, W * 0.3));
+  const pad = { top: 10, right: 10, bottom: 22 };
+  const H = pad.top + rows.length * rowH + pad.bottom;
+  const plotW = W - labelW - pad.right;
+  const x = (sec) => labelW + (sec / DAY) * plotW;
+
+  const svg = el('svg', { viewBox: `0 0 ${W} ${H}`, height: H, role: 'img' });
+  const first = rows[0], last = rows[rows.length - 1];
+  svg.append(el('title', {}, `Timeline of ${rows.length} session${rows.length === 1 ? '' : 's'} today, `
+    + `${fmtDuration(total)} in total, from ${fmtTime(first.e.startedAt)} to `
+    + `${last.e.running ? 'now' : fmtTime(last.e.endedAt)}.`));
+
+  // Hour gridlines + labels every 6h, drawn under the bars.
+  for (let h = 0; h <= 24; h += 6) {
+    const gx = x(h * 3600);
+    svg.append(el('line', {
+      x1: gx, x2: gx, y1: pad.top, y2: H - pad.bottom,
+      stroke: 'var(--grid)', 'stroke-width': 1, 'shape-rendering': 'crispEdges',
+    }));
+    svg.append(el('text', {
+      x: gx, y: H - 6, class: 'tick',
+      'text-anchor': h === 0 ? 'start' : h === 24 ? 'end' : 'middle',
+    }, `${String(h).padStart(2, '0')}:00`));
+  }
+
+  rows.forEach((r, i) => {
+    const { e } = r;
+    const yTop = pad.top + i * rowH + (rowH - barH) / 2;
+    const w = Math.max(2, ((r.end - r.start) / DAY) * plotW);
+    const label = e.description || e.projectName || e.project;
+
+    svg.append(el('text', {
+      x: 0, y: yTop + barH / 2 + 4, class: 'mark-label',
+    }, truncate(label, Math.floor(labelW / 7))));
+
+    const bar = el('path', { d: barPath(x(r.start), yTop, w, barH, 4, 'right'), fill: seriesColor(e.color) });
+    bindTip(bar, $('daily-tip'),
+      `${label}<br>${fmtTime(e.startedAt)}–${e.running ? 'now' : fmtTime(e.endedAt)}`
+      + `<br><strong>${fmtDuration(e.seconds)}</strong>`);
+    svg.append(bar);
+  });
+
+  host.append(svg);
+}
+
 function labelDay(key, short = false) {
   const [y, m, d] = key.split('-').map(Number);
   const date = new Date(y, m - 1, d);
+  // Day-first, always: we build the numeric part by hand because locale ordering
+  // is exactly what we're overriding; weekday/month names still come from locale.
   return short
-    ? date.toLocaleDateString([], { month: 'numeric', day: 'numeric' })
-    : date.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+    ? `${d}/${m}`
+    : `${date.toLocaleDateString([], { weekday: 'short' })}, ${d} `
+      + `${date.toLocaleDateString([], { month: 'short' })}`;
+}
+
+// Weekly-chart x-axis: weekday + day-first date, e.g. "Mon - 20/7".
+function axisDay(key) {
+  const [y, m, d] = key.split('-').map(Number);
+  const date = new Date(y, m - 1, d);
+  return `${date.toLocaleDateString([], { weekday: 'short' })} - ${d}/${m}`;
 }
 
 /** Horizontal bars by project or tag, with direct labels (the contrast relief). */
@@ -326,7 +432,247 @@ const truncate = (s, n) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
 
 // ----------------------------------------------------------------- render --
 
+// Entries grouping — always two levels, project then description, with no user
+// choice: seeing which project the time went to and which task it was are not
+// alternatives. Which groups are collapsed is session-only (a Set of prefixed
+// keys). lastEntries lets a collapse re-render instantly without another fetch.
+const collapsedGroups = new Set();
+let lastEntries = [];
+
+/** Seconds of one entry that fall within the given YYYY-MM-DD local day. */
+function entrySecondsOn(e, key) {
+  const [y, m, d] = key.split('-').map(Number);
+  const dayStart = new Date(y, m - 1, d).getTime();
+  const dayEnd = dayStart + 86400000;
+  const start = new Date(e.startedAt).getTime();
+  const end = e.running ? Date.now() : new Date(e.endedAt).getTime();
+  return Math.max(0, Math.round((Math.min(end, dayEnd) - Math.max(start, dayStart)) / 1000));
+}
+
+// One entry -> one <tr>. `i` is the index in the full started_at DESC list, so
+// the "Continue" affordance still keys off the single latest entry no matter
+// which group it lands in. Every row sits under a header that already names its
+// project, so the project cell is only a quiet indent.
+function buildEntryRow(e, i) {
+  const tr = document.createElement('tr');
+
+  const proj = document.createElement('td');
+  proj.className = 'group-indent';
+
+  const desc = document.createElement('td');
+  desc.textContent = e.description || '—';
+  if (!e.description) desc.className = 'muted';
+  if (e.tags.length) {
+    const tags = document.createElement('span');
+    tags.className = 'muted';
+    tags.textContent = `  ${e.tags.map((t) => `#${t}`).join(' ')}`;
+    desc.append(tags);
+  }
+
+  const started = document.createElement('td');
+  started.className = 'muted';
+  const endLabel = e.running ? 'now' : fmtTime(e.endedAt);
+  started.textContent =
+    `${labelDay(dayKey(new Date(e.startedAt)), true)} ${fmtTime(e.startedAt)} → ${endLabel}`;
+
+  const dur = document.createElement('td');
+  dur.className = 'num';
+  dur.textContent = e.running ? `${fmtDuration(e.seconds)} …` : fmtDuration(e.seconds);
+
+  const actions = document.createElement('td');
+  actions.className = 'row-actions num';
+  if (!e.running) {
+    // Continue reopens this very entry rather than opening a sibling, so a
+    // short break does not fragment one session into a dozen rows. Offered on
+    // the latest entry only (the list arrives started_at DESC) and only when
+    // nothing else is running — anywhere else it would be reordering history
+    // rather than resuming what you were just doing.
+    if (i === 0 && !state.running) {
+      const cont = document.createElement('button');
+      cont.textContent = 'Continue';
+      cont.className = 'btn-text state';
+      cont.dataset.tip = 'Reopen this entry instead of starting a new one';
+      cont.setAttribute('aria-label',
+        `Continue the entry for ${e.projectName}${e.description ? `: ${e.description}` : ''}`);
+      cont.onclick = async () => {
+        const gap = Math.max(0, Math.round((Date.now() - new Date(e.endedAt)) / 1000));
+        const mode = await choiceDialog({
+          title: 'Continue this entry?',
+          message: `${e.projectName}${e.description ? ` · ${e.description}` : ''}`
+            + ` · stopped ${fmtDuration(gap)} ago.`
+            + ' Counting the break bills it as work; excluding it keeps the'
+            + ` ${fmtDuration(e.seconds)} already tracked and resumes from now.`,
+          choices: [
+            { label: `Include break (${fmtDuration(e.seconds + gap)})`, value: 'include' },
+            { label: `Exclude break (${fmtDuration(e.seconds)})`, value: 'exclude' },
+          ],
+        });
+        if (!mode) return;
+        try {
+          await api(`/entries/${e.id}/continue`, { method: 'POST', body: { mode } });
+          toast(`Continuing ${e.projectName}`);
+          await refresh();
+        } catch (err) {
+          toast(err.message);
+        }
+      };
+      actions.append(cont);
+    }
+
+    // Pick this task up again. The server's start endpoint defaults startedAt
+    // to now and stops whatever was running, so resuming is one call — this
+    // deliberately opens a fresh entry rather than reopening the old one, so
+    // the original session's times stay intact in the history.
+    const again = document.createElement('button');
+    again.textContent = 'Start';
+    again.className = 'btn-text state';
+    again.dataset.tip = 'Start a new, separate timer for this task, beginning now';
+    again.setAttribute('aria-label',
+      `Start a new timer for ${e.projectName}${e.description ? `: ${e.description}` : ''}`);
+    again.onclick = async () => {
+      try {
+        const res = await api(`/projects/${encodeURIComponent(e.project)}/start`, {
+          method: 'POST',
+          body: { description: e.description, tags: e.tags },
+        });
+        // Restarting the same project would otherwise read "Tracking Beta ·
+        // stopped Beta", which sounds like a bug rather than a handoff.
+        if (!res.stopped) toast(`Tracking ${e.projectName}`);
+        else if (res.stopped.project === e.project) toast(`Restarted ${e.projectName}`);
+        else toast(`Tracking ${e.projectName} · stopped ${res.stopped.projectName}`);
+        await refresh();
+      } catch (err) {
+        toast(err.message);
+      }
+    };
+    actions.append(again);
+
+    const edit = document.createElement('button');
+    edit.textContent = 'Edit';
+    edit.className = 'btn-text state';
+    edit.setAttribute('aria-label', `Edit entry for ${e.projectName}`);
+    edit.onclick = () => openDialog(e);
+    actions.append(edit);
+
+    const del = document.createElement('button');
+    del.textContent = 'Delete';
+    del.className = 'btn-text state';
+    del.style.color = 'var(--md-error)';
+    del.setAttribute('aria-label', `Delete entry for ${e.projectName}`);
+    del.onclick = async () => {
+      const ok = await confirmDialog({
+        title: 'Delete entry?',
+        message: `${e.projectName} · ${fmtDuration(e.seconds)}`
+          + `${e.description ? ` · ${e.description}` : ''}. This cannot be undone.`,
+        confirmLabel: 'Delete',
+        destructive: true,
+      });
+      if (!ok) return;
+      await api(`/entries/${e.id}`, { method: 'DELETE' });
+      toast('Entry deleted');
+      refresh();
+    };
+    actions.append(del);
+  }
+
+  tr.append(proj, desc, started, dur, actions);
+  return tr;
+}
+
+// A collapsible group header spanning the whole table width, at one of two
+// levels. A `project` header carries the project dot and both totals; a
+// `description` header sits inside one, so it drops the dot and shows the range
+// total alone — its parent's Today figure is already on screen right above it.
+function buildGroupHead(items, { label, color, level }, collapsed, onToggle) {
+  const rangeSecs = items.reduce((n, { e }) => n + e.seconds, 0);
+  const todaySecs = items.reduce((n, { e }) => n + entrySecondsOn(e, dayKey(new Date())), 0);
+  const isProject = level === 'project';
+
+  const tr = document.createElement('tr');
+  tr.className = `group-head group-head-${level}`;
+  const td = document.createElement('td');
+  td.colSpan = 5;
+
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = `group-btn state group-${level}`;
+  btn.setAttribute('aria-expanded', String(!collapsed));
+  btn.setAttribute('aria-label',
+    `${collapsed ? 'Expand' : 'Collapse'} ${label}: `
+    + (isProject ? `today ${fmtDuration(todaySecs)}, ` : '')
+    + `range ${fmtDuration(rangeSecs)}`);
+  btn.onclick = onToggle;
+
+  const chevron = document.createElement('span');
+  chevron.className = `chevron${collapsed ? '' : ' open'}`;
+  chevron.setAttribute('aria-hidden', 'true');
+
+  const name = document.createElement('span');
+  name.className = 'group-name';
+  name.textContent = label;
+
+  const count = document.createElement('span');
+  count.className = 'group-count muted';
+  count.textContent = `${items.length} ${items.length === 1 ? 'entry' : 'entries'}`;
+
+  const totals = document.createElement('span');
+  totals.className = 'group-totals';
+  totals.innerHTML = isProject
+    ? `Today <strong>${fmtDuration(todaySecs)}</strong>`
+      + ` <span class="muted">·</span> Range <strong>${fmtDuration(rangeSecs)}</strong>`
+    : `<strong>${fmtDuration(rangeSecs)}</strong>`;
+
+  btn.append(chevron);
+  if (color != null) {
+    const dot = document.createElement('i');
+    dot.className = 'dot';
+    dot.style.background = seriesColor(color);
+    btn.append(dot);
+  }
+  btn.append(name, count, totals);
+  td.append(btn);
+  tr.append(td);
+  return tr;
+}
+
+/** Bucket into a Map, preserving started_at DESC order of first appearance. */
+function bucketBy(items, keyOf) {
+  const groups = new Map();
+  for (const item of items) {
+    const key = keyOf(item);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(item);
+  }
+  return groups;
+}
+
+// Toggling collapse re-renders from the cached entries, so it flips with no
+// round trip.
+function toggleGroup(key) {
+  if (collapsedGroups.has(key)) collapsedGroups.delete(key);
+  else collapsedGroups.add(key);
+  renderEntries(lastEntries);
+}
+
+// The description groups of one project, appended into its <tbody>. Collapse
+// keys are namespaced by level *and* by parent project: the same description
+// under two projects must collapse independently.
+function appendDescriptionGroups(tbody, slug, items) {
+  for (const [desc, group] of bucketBy(items, ({ e }) => e.description || '')) {
+    const key = `d:${slug} ${desc}`;
+    const collapsed = collapsedGroups.has(key);
+    tbody.append(buildGroupHead(
+      group,
+      { label: desc || '(no description)', color: null, level: 'description' },
+      collapsed,
+      () => toggleGroup(key),
+    ));
+    if (!collapsed) for (const { e, i } of group) tbody.append(buildEntryRow(e, i));
+  }
+}
+
 function renderEntries(entries) {
+  lastEntries = entries;
   const host = $('entries-table');
   $('entries-sub').textContent = `${entries.length} in range`;
 
@@ -337,145 +683,42 @@ function renderEntries(entries) {
 
   const table = document.createElement('table');
   table.innerHTML = `<thead><tr>
-      <th>Project</th><th>Description</th><th>Started</th>
+      <th></th><th>Description</th><th>Started</th>
       <th class="num">Duration</th><th></th>
     </tr></thead>`;
-  const tbody = document.createElement('tbody');
 
-  for (const [i, e] of entries.entries()) {
-    const tr = document.createElement('tr');
+  // Pair each entry with its index in the full started_at DESC list before
+  // bucketing, so `i === 0` still identifies the single latest entry wherever it
+  // lands. Map order keeps the most recently active group on top at both levels.
+  const items = [...entries.entries()].map(([i, e]) => ({ e, i }));
 
-    const proj = document.createElement('td');
-    const cell = document.createElement('span');
-    cell.className = 'proj-cell';
-    const dot = document.createElement('i');
-    dot.className = 'dot';
-    dot.style.background = seriesColor(e.color);
-    const link = document.createElement('a');
-    link.href = `/p/${encodeURIComponent(e.project)}`;
-    link.textContent = e.projectName;
-    cell.append(dot, link);
-    proj.append(cell);
-
-    const desc = document.createElement('td');
-    desc.textContent = e.description || '—';
-    if (!e.description) desc.className = 'muted';
-    if (e.tags.length) {
-      const tags = document.createElement('span');
-      tags.className = 'muted';
-      tags.textContent = `  ${e.tags.map((t) => `#${t}`).join(' ')}`;
-      desc.append(tags);
+  // A scoped /p/<slug> page is one project by definition, so the outer level
+  // would be a single redundant header — group by description alone there.
+  if (state.scope) {
+    const tbody = document.createElement('tbody');
+    tbody.className = 'entry-group';
+    appendDescriptionGroups(tbody, '', items);
+    table.append(tbody);
+  } else {
+    // <tbody> cannot nest, so one <tbody> holds a whole project: its header, then
+    // each description header with that description's rows. The hierarchy is
+    // carried by the level classes, not by markup depth.
+    for (const [slug, group] of bucketBy(items, ({ e }) => e.project)) {
+      const first = group[0].e;
+      const key = `p:${slug}`;
+      const collapsed = collapsedGroups.has(key);
+      const tbody = document.createElement('tbody');
+      tbody.className = 'entry-group';
+      tbody.append(buildGroupHead(
+        group,
+        { label: first.projectName, color: first.color, level: 'project' },
+        collapsed,
+        () => toggleGroup(key),
+      ));
+      if (!collapsed) appendDescriptionGroups(tbody, slug, group);
+      table.append(tbody);
     }
-
-    const started = document.createElement('td');
-    started.className = 'muted';
-    started.textContent = `${labelDay(dayKey(new Date(e.startedAt)), true)} ${fmtTime(e.startedAt)}`;
-
-    const dur = document.createElement('td');
-    dur.className = 'num';
-    dur.textContent = e.running ? `${fmtDuration(e.seconds)} …` : fmtDuration(e.seconds);
-
-    const actions = document.createElement('td');
-    actions.className = 'row-actions num';
-    if (!e.running) {
-      // Continue reopens this very entry rather than opening a sibling, so a
-      // short break does not fragment one session into a dozen rows. Offered on
-      // the latest entry only (the list arrives started_at DESC) and only when
-      // nothing else is running — anywhere else it would be reordering history
-      // rather than resuming what you were just doing.
-      if (i === 0 && !state.running) {
-        const cont = document.createElement('button');
-        cont.textContent = 'Continue';
-        cont.className = 'btn-text state';
-        cont.dataset.tip = 'Reopen this entry instead of starting a new one';
-        cont.setAttribute('aria-label',
-          `Continue the entry for ${e.projectName}${e.description ? `: ${e.description}` : ''}`);
-        cont.onclick = async () => {
-          const gap = Math.max(0, Math.round((Date.now() - new Date(e.endedAt)) / 1000));
-          const mode = await choiceDialog({
-            title: 'Continue this entry?',
-            message: `${e.projectName}${e.description ? ` · ${e.description}` : ''}`
-              + ` · stopped ${fmtDuration(gap)} ago.`
-              + ' Counting the break bills it as work; excluding it keeps the'
-              + ` ${fmtDuration(e.seconds)} already tracked and resumes from now.`,
-            choices: [
-              { label: `Include break (${fmtDuration(e.seconds + gap)})`, value: 'include' },
-              { label: `Exclude break (${fmtDuration(e.seconds)})`, value: 'exclude' },
-            ],
-          });
-          if (!mode) return;
-          try {
-            await api(`/entries/${e.id}/continue`, { method: 'POST', body: { mode } });
-            toast(`Continuing ${e.projectName}`);
-            await refresh();
-          } catch (err) {
-            toast(err.message);
-          }
-        };
-        actions.append(cont);
-      }
-
-      // Pick this task up again. The server's start endpoint defaults startedAt
-      // to now and stops whatever was running, so resuming is one call — this
-      // deliberately opens a fresh entry rather than reopening the old one, so
-      // the original session's times stay intact in the history.
-      const again = document.createElement('button');
-      again.textContent = 'Start';
-      again.className = 'btn-text state';
-      again.dataset.tip = 'Start a new, separate timer for this task, beginning now';
-      again.setAttribute('aria-label',
-        `Start a new timer for ${e.projectName}${e.description ? `: ${e.description}` : ''}`);
-      again.onclick = async () => {
-        try {
-          const res = await api(`/projects/${encodeURIComponent(e.project)}/start`, {
-            method: 'POST',
-            body: { description: e.description, tags: e.tags },
-          });
-          // Restarting the same project would otherwise read "Tracking Beta ·
-          // stopped Beta", which sounds like a bug rather than a handoff.
-          if (!res.stopped) toast(`Tracking ${e.projectName}`);
-          else if (res.stopped.project === e.project) toast(`Restarted ${e.projectName}`);
-          else toast(`Tracking ${e.projectName} · stopped ${res.stopped.projectName}`);
-          await refresh();
-        } catch (err) {
-          toast(err.message);
-        }
-      };
-      actions.append(again);
-
-      const edit = document.createElement('button');
-      edit.textContent = 'Edit';
-      edit.className = 'btn-text state';
-      edit.setAttribute('aria-label', `Edit entry for ${e.projectName}`);
-      edit.onclick = () => openDialog(e);
-      actions.append(edit);
-
-      const del = document.createElement('button');
-      del.textContent = 'Delete';
-      del.className = 'btn-text state';
-      del.style.color = 'var(--md-error)';
-      del.setAttribute('aria-label', `Delete entry for ${e.projectName}`);
-      del.onclick = async () => {
-        const ok = await confirmDialog({
-          title: 'Delete entry?',
-          message: `${e.projectName} · ${fmtDuration(e.seconds)}`
-            + `${e.description ? ` · ${e.description}` : ''}. This cannot be undone.`,
-          confirmLabel: 'Delete',
-          destructive: true,
-        });
-        if (!ok) return;
-        await api(`/entries/${e.id}`, { method: 'DELETE' });
-        toast('Entry deleted');
-        refresh();
-      };
-      actions.append(del);
-    }
-
-    tr.append(proj, desc, started, dur, actions);
-    tbody.append(tr);
   }
-
-  table.append(tbody);
 
   // Five columns plus free-text descriptions cannot reflow onto a phone, so the
   // table scrolls inside its card. tabindex makes that scroll reachable by
@@ -549,6 +792,60 @@ function showError(msg) {
 }
 
 /**
+ * Update banner. The server's updateInfo() throttles its own `git fetch`, so
+ * this can ride the normal poll cheaply; we still gate to ~15 min between checks
+ * and suppress the check entirely while an update is in flight. Update is a
+ * nicety — its own failures are swallowed, never shown as a data error.
+ */
+let lastUpdateCheck = 0;
+let updating = false;
+
+async function checkUpdate(force = false) {
+  if (updating) return;
+  if (!force && Date.now() - lastUpdateCheck < 15 * 60 * 1000) return;
+  lastUpdateCheck = Date.now();
+  let info;
+  try {
+    info = await api('/update');
+  } catch {
+    return;
+  }
+  const show = info.enabled && info.available;
+  $('update-text').textContent = show && info.latest ? `“${info.latest}”` : '';
+  $('update-banner').hidden = !show;
+}
+
+async function runUpdate() {
+  if (updating) return;
+  const ok = await confirmDialog({
+    title: 'Update now?',
+    message: 'Pulls the latest version and restarts the server. Any running timer keeps running.',
+    confirmLabel: 'Update',
+  });
+  if (!ok) return;
+
+  updating = true;
+  $('update-btn').disabled = true;
+  $('update-text').textContent = 'Updating…';
+  // The connection may drop as the server restarts — that's expected, not an error.
+  await api('/update', { method: 'POST', body: {} }).catch(() => {});
+
+  // Wait for the server to come back on the new code, then reload onto it.
+  const deadline = Date.now() + 60000;
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 1500));
+    try {
+      await api('/health');
+      location.reload();
+      return;
+    } catch {}
+  }
+  updating = false;
+  $('update-btn').disabled = false;
+  $('update-text').textContent = 'Restart is taking a while — try again.';
+}
+
+/**
  * refresh() reports its own failures and never rejects, so the polling timers
  * and event handlers that call it can stay fire-and-forget.
  */
@@ -576,6 +873,7 @@ async function refresh() {
   const [stateRes, summary, ts, entries, projects] = payload;
   state.running = stateRes.running;
   state.projects = projects;
+  state.statuses = stateRes.statuses || [];
 
   if (state.running) {
     $('project-input').value = state.running.project;
@@ -586,7 +884,8 @@ async function refresh() {
   $('stat-today').textContent = fmtDuration(stateRes.todaySeconds);
   $('stat-week').textContent = fmtDuration(stateRes.weekSeconds);
   $('stat-range').textContent = fmtDuration(summary.totalSeconds);
-  $('stat-range-label').textContent = state.days === 1 ? 'Today total' : `Last ${state.days} days`;
+  $('stat-range-label').textContent =
+    state.range === 'today' ? 'Today total' : state.range === 'month' ? 'This month' : 'This week';
 
   const activeDays = ts.series.filter((d) => d.seconds > 0).length;
   $('stat-avg').textContent = activeDays
@@ -595,7 +894,13 @@ async function refresh() {
 
   renderTimer();
   focusForInput();
-  renderDaily(ts.series);
+  if (state.range === 'today') {
+    $('daily-title').textContent = "Today's timeline";
+    renderGantt(entries);
+  } else {
+    $('daily-title').textContent = 'Hours per day';
+    renderDaily(ts.series);
+  }
   renderProjects(summary.items, summary.totalSeconds, groupBy);
   renderEntries(entries);
   renderPicker(projects);
@@ -617,6 +922,22 @@ function renderPicker(projects) {
   ]);
   projectSelect.setValue(state.scope || '');
   $('scope').textContent = state.scope ? `· ${state.scope}` : '';
+}
+
+// ---- statuses -------------------------------------------------------------
+// Statuses are report-only: they are picked per task in the daily report modal
+// and never written back to an entry. Names added there live for the session;
+// ones already stored on old entries come back from /api/state.
+const customStatuses = new Set();
+
+/** Deduped, ordered status values: defaults, then server- and session-added. */
+function statusValues() {
+  const seen = new Set();
+  const out = [];
+  for (const s of [...DEFAULT_STATUSES, ...(state.statuses || []), ...customStatuses]) {
+    if (s && !seen.has(s)) { seen.add(s); out.push(s); }
+  }
+  return out;
 }
 
 // ------------------------------------------------------------------ wiring --
@@ -704,6 +1025,8 @@ form.addEventListener('submit', async (e) => {
     endedAt = new Date(new Date(endedAt).getTime() + 86400000).toISOString();
   }
 
+  // No status/percent/eta here — those are report-only now, so a PATCH that
+  // omits them leaves whatever an older build stored untouched.
   const body = {
     project: form.project.value.trim(),
     description: form.description.value.trim(),
@@ -723,6 +1046,321 @@ form.addEventListener('submit', async (e) => {
     $('dialog-error').hidden = false;
   }
 });
+
+// ---- daily report ---------------------------------------------------------
+// A standup line per task, where a "task" is one description (the Linear URL)
+// with every entry against it today summed. Nothing here is persisted: the
+// modal exists to produce text, so it holds its own state and forgets it on
+// close.
+
+const reportDialog = $('report-dialog');
+let reportRows = [];
+
+/** A labelled MD3 text field, matching the ones authored in index.html. */
+function reportField(id, label, type = 'text') {
+  const field = document.createElement('div');
+  field.className = 'field dense';
+  const input = document.createElement('input');
+  input.id = id;
+  input.type = type;
+  input.placeholder = ' ';
+  if (type === 'number') { input.min = '0'; input.max = '100'; }
+  const lab = document.createElement('label');
+  lab.setAttribute('for', id);
+  lab.textContent = label;
+  field.append(input, lab);
+  return { field, input };
+}
+
+const statusOptions = () => [
+  ...statusValues().map((s) => ({ value: s, label: s })),
+  { value: ADD_STATUS, label: '+ Add new status…' },
+];
+
+/** A new status is offered to every task, not just the row that added it. */
+function rebuildReportOptions() {
+  for (const row of reportRows) row.select.setOptions(statusOptions());
+}
+
+function reportLine(row) {
+  const spent = `${(row.seconds / 3600).toFixed(2)}h`;
+  const status = row.select.value;
+  if (status !== 'WIP') return `- ${row.label} => ${status}, spent: ${spent}`;
+
+  const pct = row.percent.value.trim();
+  const eta = row.eta.value.trim();
+  return `- ${row.label} => WIP${pct ? ` ${pct}%` : ''}, spent: ${spent}`
+    + (eta ? `, eta: ${eta}` : '');
+}
+
+/** Rows without a status say nothing worth reporting, so they drop out. */
+function renderPreview() {
+  $('report-preview').value = reportRows
+    .filter((r) => r.include.checked && r.select.value && r.select.value !== ADD_STATUS)
+    .map(reportLine)
+    .join('\n');
+}
+
+function buildReportRow(label, seconds, index) {
+  const wrap = document.createElement('div');
+  wrap.className = 'report-row';
+
+  const include = document.createElement('input');
+  include.type = 'checkbox';
+  include.className = 'report-include';
+  include.checked = true;
+  include.id = `report-inc-${index}`;
+
+  const name = document.createElement('label');
+  name.className = 'report-label';
+  name.setAttribute('for', include.id);
+  name.textContent = label;
+
+  const dur = document.createElement('span');
+  dur.className = 'report-duration';
+  dur.textContent = fmtDuration(seconds);
+
+  const controls = document.createElement('div');
+  controls.className = 'report-controls';
+  const mount = document.createElement('div');
+  mount.id = `report-status-${index}`;
+  const wip = document.createElement('div');
+  wip.className = 'report-wip';
+  wip.hidden = true;
+  const percent = reportField(`report-pct-${index}`, 'Percent', 'number');
+  const eta = reportField(`report-eta-${index}`, 'ETA');
+  wip.append(percent.field, eta.field);
+  controls.append(mount, wip);
+
+  wrap.append(include, name, dur, controls);
+
+  const row = {
+    label, seconds, include, percent: percent.input, eta: eta.input, select: null,
+  };
+
+  // Same "+ Add new status…" contract as the old entry dialog: picking it
+  // prompts for a name and falls back to the previous value if cancelled.
+  let prev = '';
+  row.select = createSelect(mount, {
+    label: 'Status',
+    onChange: async (value) => {
+      if (value === ADD_STATUS) {
+        const nameValue = await promptDialog({
+          title: 'Add status',
+          label: 'Status name',
+          confirmLabel: 'Add',
+        });
+        if (nameValue) {
+          customStatuses.add(nameValue);
+          rebuildReportOptions();
+          row.select.setValue(nameValue);
+          prev = nameValue;
+        } else {
+          row.select.setValue(prev);
+        }
+      } else {
+        prev = value;
+      }
+      wip.hidden = row.select.value !== 'WIP';
+      renderPreview();
+    },
+  });
+  row.select.setOptions(statusOptions());
+
+  include.addEventListener('change', renderPreview);
+  for (const input of [percent.input, eta.input]) {
+    input.addEventListener('input', renderPreview);
+  }
+  return { wrap, row };
+}
+
+async function openReport() {
+  const host = $('report-list');
+  host.textContent = '';
+  reportRows = [];
+  $('report-preview').value = '';
+  $('report-sub').textContent = 'Loading…';
+  reportDialog.showModal();
+
+  // Today only, whatever range the chips are on — a standup is about today.
+  const day = dayKey(new Date());
+  let entries;
+  try {
+    const q = new URLSearchParams({ from: day, to: day });
+    if (state.scope) q.set('project', state.scope);
+    entries = await api(`/entries?${q}`);
+  } catch (err) {
+    $('report-sub').textContent = err.message;
+    return;
+  }
+
+  // One line per description; entries with none fall back to their project so
+  // they are still reportable.
+  const totals = new Map();
+  for (const e of entries) {
+    const label = e.description.trim() || e.projectName;
+    // A task spans several entries, so it "ends" at the last one you touched.
+    // A running entry has no endedAt but is ending now — the same convention
+    // reports.js clips with — which sorts it last, where in-progress belongs.
+    const end = e.endedAt ? Date.parse(e.endedAt) : Date.now();
+    const prev = totals.get(label);
+    if (prev) {
+      prev.seconds += e.seconds;
+      prev.end = Math.max(prev.end, end);
+    } else {
+      totals.set(label, { seconds: e.seconds, end });
+    }
+  }
+  // Earliest finish first, so the report reads in the order the day happened.
+  const tasks = [...totals].sort((a, b) => a[1].end - b[1].end);
+
+  $('report-sub').textContent = tasks.length
+    ? `${tasks.length} ${tasks.length === 1 ? 'task' : 'tasks'} today`
+    : 'Nothing tracked today.';
+
+  let i = 0;
+  for (const [label, { seconds }] of tasks) {
+    const { wrap, row } = buildReportRow(label, seconds, i++);
+    host.append(wrap);
+    reportRows.push(row);
+  }
+}
+
+$('report-btn').onclick = openReport;
+$('report-close').onclick = () => reportDialog.close();
+$('report-copy').onclick = async () => {
+  const text = $('report-preview').value;
+  if (!text) return toast('Pick a status first');
+  try {
+    await navigator.clipboard.writeText(text);
+    toast('Copied');
+  } catch {
+    // Clipboard access can be denied; the textarea is still there to copy from.
+    $('report-preview').select();
+    toast("Couldn't copy — press ⌘C");
+  }
+};
+
+// ------------------------------------------------------------------- wip --
+// "Report WIP" writes today's report into the signed-in user's row of the team's
+// monthly Google Sheet, via /api/wip/*. The sheet link/id lives in localStorage
+// (per-device, like the theme); everything below is gated on being signed in,
+// since the server needs the user's Google token to read or write the sheet.
+
+const SHEET_KEY = 'wt-sheet';
+const sheetId = () => localStorage.getItem(SHEET_KEY) || '';
+
+/** Accept a full docs.google.com link or a bare id; null if it's neither. */
+function parseSheetIdClient(input) {
+  const t = String(input || '').trim();
+  const m = t.match(/\/d\/([a-zA-Z0-9-_]+)/);
+  if (m) return m[1];
+  return /^[a-zA-Z0-9-_]+$/.test(t) ? t : null;
+}
+
+/** Toggle the top-center title bar and the Report WIP button for the current
+ *  sign-in + configured-sheet state, then (re)load the title. */
+function renderWip() {
+  const loggedIn = !!state.user;
+  const id = sheetId();
+  $('wip-bar').hidden = !loggedIn;
+  $('report-wip-btn').hidden = !loggedIn || !id;
+  if (!loggedIn) return;
+
+  $('wip-set-btn').hidden = !!id;
+  $('wip-title').hidden = !id;
+  if (id) {
+    $('wip-title').textContent = 'Loading sheet…';
+    $('wip-title').classList.remove('warn');
+    loadWipTitle(id);
+  }
+}
+
+async function loadWipTitle(id) {
+  const el = $('wip-title');
+  try {
+    const { title, monthOk, month } = await api(`/wip/title?id=${encodeURIComponent(id)}`);
+    el.textContent = title || 'Untitled sheet';
+    el.classList.toggle('warn', !monthOk);
+    el.dataset.tip = monthOk ? 'Change the WIP sheet' : `Not ${month} — reporting is blocked`;
+    if (!monthOk) toast(`WIP sheet isn't ${month} — set the current month's file`);
+  } catch (err) {
+    el.textContent = 'Sheet unavailable';
+    el.classList.add('warn');
+    toast(err.message);
+  }
+}
+
+async function promptForSheet() {
+  const input = await promptDialog({
+    title: 'WIP sheet',
+    label: 'Google Sheet link or ID',
+    placeholder: 'https://docs.google.com/spreadsheets/d/…',
+    confirmLabel: 'Save',
+    initial: sheetId(),
+  });
+  if (input == null) return;
+  const id = parseSheetIdClient(input);
+  if (!id) return toast("That doesn't look like a Sheet link or ID");
+  localStorage.setItem(SHEET_KEY, id);
+  renderWip();
+}
+
+/**
+ * Push the edited Daily-report preview into the user's row of the team sheet.
+ * The preview textarea is the source of truth — the user has previewed and
+ * edited it — and it lands in column D only ("What I have done for today").
+ */
+async function reportWipToSheet() {
+  const content = $('report-preview').value.trim();
+  if (!content) return toast('Nothing to report — pick a status first');
+
+  const id = sheetId();
+  if (!id) return promptForSheet();
+
+  let data;
+  try {
+    data = await api(`/wip/row?id=${encodeURIComponent(id)}`);
+  } catch (err) {
+    return toast(err.message);
+  }
+  if (!data.monthOk) return toast(`WIP sheet isn't ${data.month} — nothing was written`);
+
+  const cands = data.candidates || [];
+  if (cands.length === 0) return toast('Could not find your row in the sheet');
+
+  let picked = cands[0];
+  if (cands.length > 1) {
+    // "double check team": several rows share the name, so let the user confirm
+    // by team before anything is written.
+    const choice = await choiceDialog({
+      title: 'Which row is yours?',
+      message: 'Several rows match your name — pick your team.',
+      choices: cands.map((c, i) => ({ label: `${c.team || '—'} · ${c.name}`, value: String(i) })),
+    });
+    if (choice == null) return;
+    picked = cands[Number(choice)];
+  }
+
+  const btn = $('report-wip-btn');
+  btn.disabled = true;
+  try {
+    await api('/wip/report', {
+      method: 'POST',
+      body: { id, tab: data.tab, rowNumber: picked.rowNumber, content },
+    });
+    reportDialog.close();
+    toast('Reported to the WIP sheet');
+  } catch (err) {
+    toast(err.message);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+$('report-wip-btn').onclick = reportWipToSheet;
+$('wip-set-btn').onclick = promptForSheet;
+$('wip-title').onclick = promptForSheet;
 
 $('retry-btn').onclick = async (e) => {
   e.target.disabled = true;
@@ -757,7 +1395,7 @@ for (const id of ['project-input', 'desc-input', 'tags-input']) {
 
 for (const chip of document.querySelectorAll('.chip')) {
   chip.onclick = () => {
-    state.days = Number(chip.dataset.days);
+    state.range = chip.dataset.range;
     for (const c of document.querySelectorAll('.chip')) c.setAttribute('aria-pressed', String(c === chip));
     refresh();
   };
@@ -773,6 +1411,81 @@ $('theme-toggle').onclick = () => {
   localStorage.setItem('wt-theme', next);
   refresh();
 };
+
+// --------------------------------------------------------------- account --
+// Sign-in is optional and identity-only — nothing in the dashboard is gated on
+// it. /api/auth/me reports enabled:false when the server has no GOOGLE_OAUTH_*
+// configured, and then neither button ever appears, so the header never hints
+// at a feature that cannot work.
+
+const accountDialog = $('account-dialog');
+
+function renderAuth({ enabled, user }) {
+  state.user = user || null;
+  $('signin-btn').hidden = !enabled || !!user;
+  $('avatar-btn').hidden = !user;
+  renderWip();
+  if (!user) return;
+
+  const label = user.name || user.email || 'Account';
+  $('avatar-btn').setAttribute('aria-label', `Account: ${label}`);
+  $('avatar-btn').replaceChildren(avatarFace(user));
+  $('account-avatar').replaceChildren(avatarFace(user));
+  $('account-name').textContent = label;
+  $('account-email').textContent = user.email || '';
+}
+
+/** Google's photo host can 404 or be blocked outright — fall back to an initial. */
+function avatarFace(user) {
+  const initial = (user.name || user.email || '?').trim().charAt(0).toUpperCase();
+  if (!user.picture) return document.createTextNode(initial);
+  const img = document.createElement('img');
+  img.src = user.picture;
+  img.alt = '';
+  img.referrerPolicy = 'no-referrer';
+  img.onerror = () => img.replaceWith(document.createTextNode(initial));
+  return img;
+}
+
+async function loadAuth() {
+  try {
+    renderAuth(await api('/auth/me'));
+  } catch {
+    renderAuth({ enabled: false, user: null });
+  }
+}
+
+$('signin-btn').onclick = () => {
+  // Full navigation, not fetch: the consent screen is Google's own page.
+  const next = location.pathname + location.search;
+  location.href = `/api/auth/google?next=${encodeURIComponent(next)}`;
+};
+
+$('avatar-btn').onclick = () => accountDialog.showModal();
+$('account-close').onclick = () => accountDialog.close();
+
+$('logout-btn').onclick = async () => {
+  try {
+    await api('/auth/logout', { method: 'POST' });
+    accountDialog.close();
+    renderAuth({ enabled: true, user: null });
+    toast('Signed out');
+  } catch (err) {
+    toast(err.message);
+  }
+};
+
+// The callback bounces back here with ?auth_error=… when sign-in fails; say so
+// once, then scrub the parameter so a reload doesn't repeat it.
+const authError = new URLSearchParams(location.search).get('auth_error');
+if (authError) {
+  toast(authError);
+  const clean = new URL(location.href);
+  clean.searchParams.delete('auth_error');
+  history.replaceState(null, '', clean);
+}
+
+loadAuth();
 
 // ?theme=light|dark forces a mode for screenshots and embeds; otherwise the
 // saved choice wins, and with neither we follow the OS.
@@ -799,7 +1512,12 @@ addEventListener('visibilitychange', () => {
 });
 setInterval(() => !document.hidden && refresh(), 60000);
 
+$('update-btn').addEventListener('click', runUpdate);
+// Piggyback the update check on the poll; checkUpdate() self-throttles to ~15 min.
+setInterval(() => !document.hidden && checkUpdate(), 60000);
+
 refresh();
+checkUpdate();
 
 /**
  * MD3 ripple. Delegated from the document so dynamically rendered rows get it

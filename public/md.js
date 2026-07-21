@@ -644,6 +644,65 @@ export async function confirmDialog({ title, message, confirmLabel = 'OK', destr
   return v === true;
 }
 
+/**
+ * MD3 basic dialog with a single text input, replacing window.prompt(). Resolves
+ * the trimmed value, or null if cancelled/dismissed or left empty. Built on the
+ * same native <dialog> as choiceDialog so focus trapping and the backdrop come
+ * for free.
+ */
+export function promptDialog({ title, label, placeholder = ' ', confirmLabel = 'Add', initial = '' }) {
+  return new Promise((resolve) => {
+    const dlg = document.createElement('dialog');
+    dlg.className = 'md-confirm';
+    dlg.setAttribute('aria-labelledby', 'md-prompt-title');
+
+    const h = document.createElement('h2');
+    h.id = 'md-prompt-title';
+    h.textContent = title;
+
+    const form = document.createElement('form');
+    form.method = 'dialog';
+
+    const field = document.createElement('div');
+    field.className = 'field';
+    const input = document.createElement('input');
+    input.placeholder = placeholder;
+    input.value = initial;
+    input.id = 'md-prompt-input';
+    const lab = document.createElement('label');
+    lab.setAttribute('for', input.id);
+    lab.textContent = label;
+    field.append(input, lab);
+
+    const actions = document.createElement('div');
+    actions.className = 'dialog-actions';
+    const cancel = document.createElement('button');
+    cancel.type = 'button';
+    cancel.className = 'btn-text state';
+    cancel.textContent = 'Cancel';
+    const ok = document.createElement('button');
+    ok.type = 'submit';
+    ok.className = 'btn-primary state';
+    ok.textContent = confirmLabel;
+    actions.append(cancel, ok);
+
+    form.append(field, actions);
+    dlg.append(h, form);
+    document.body.append(dlg);
+
+    const done = (v) => { dlg.close(); dlg.remove(); resolve(v); };
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      done(input.value.trim() || null);
+    });
+    cancel.onclick = () => done(null);
+    dlg.addEventListener('cancel', (e) => { e.preventDefault(); done(null); });
+
+    dlg.showModal();
+    input.focus();
+  });
+}
+
 // ---------------------------------------------------------------- tooltips --
 
 /**

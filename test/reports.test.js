@@ -333,6 +333,105 @@ describe('continuing an entry', () => {
   });
 });
 
+describe('entry status / percent / eta', () => {
+  const call = async (method, path, body) => {
+    const res = await fetch(`${base}${path}`, {
+      method,
+      headers: { 'content-type': 'application/json' },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    return { status: res.status, body: await res.json() };
+  };
+
+  test('round-trips status, percent and eta for a WIP entry', async () => {
+    const created = await call('POST', '/api/entries', {
+      project: 'alpha',
+      startedAt: iso('2026-03-10', 9),
+      endedAt: iso('2026-03-10', 11),
+      status: 'WIP',
+      percent: 40,
+      eta: 'Fri',
+    });
+    assert.equal(created.status, 200);
+    assert.equal(created.body.status, 'WIP');
+    assert.equal(created.body.percent, 40);
+    assert.equal(created.body.eta, 'Fri');
+
+    const list = await call('GET', '/api/entries?from=2026-03-10&to=2026-03-10');
+    const row = list.body.find((e) => e.id === created.body.id);
+    assert.equal(row.status, 'WIP');
+    assert.equal(row.percent, 40);
+    assert.equal(row.eta, 'Fri');
+  });
+
+  test('nulls percent and eta when the status is not WIP', async () => {
+    const created = await call('POST', '/api/entries', {
+      project: 'alpha',
+      startedAt: iso('2026-03-10', 9),
+      endedAt: iso('2026-03-10', 11),
+      status: 'Done',
+      percent: 40,
+      eta: 'Fri',
+    });
+    assert.equal(created.body.status, 'Done');
+    assert.equal(created.body.percent, null);
+    assert.equal(created.body.eta, null);
+  });
+
+  test('clamps percent to 0-100 and rounds to an integer', async () => {
+    const created = await call('POST', '/api/entries', {
+      project: 'alpha',
+      startedAt: iso('2026-03-10', 9),
+      endedAt: iso('2026-03-10', 11),
+      status: 'WIP',
+      percent: 150.6,
+    });
+    assert.equal(created.body.percent, 100);
+    assert.equal(created.body.eta, null);
+  });
+
+  test('switching a WIP entry to Done clears percent and eta on PATCH', async () => {
+    const created = await call('POST', '/api/entries', {
+      project: 'alpha',
+      startedAt: iso('2026-03-10', 9),
+      endedAt: iso('2026-03-10', 11),
+      status: 'WIP',
+      percent: 60,
+      eta: 'tomorrow',
+    });
+    const patched = await call('PATCH', `/api/entries/${created.body.id}`, {
+      status: 'Done',
+      percent: null,
+      eta: null,
+    });
+    assert.equal(patched.body.status, 'Done');
+    assert.equal(patched.body.percent, null);
+    assert.equal(patched.body.eta, null);
+  });
+
+  test('reports distinct saved statuses via /api/state', async () => {
+    await call('POST', '/api/entries', {
+      project: 'alpha', startedAt: iso('2026-03-10', 9), endedAt: iso('2026-03-10', 10),
+      status: 'Ready For QA',
+    });
+    await call('POST', '/api/entries', {
+      project: 'alpha', startedAt: iso('2026-03-10', 11), endedAt: iso('2026-03-10', 12),
+      status: 'WIP', percent: 10,
+    });
+    const state = await call('GET', '/api/state');
+    assert.deepEqual(state.body.statuses, ['Ready For QA', 'WIP']);
+  });
+
+  test('defaults a manual entry with no status to an empty string', async () => {
+    const created = await call('POST', '/api/entries', {
+      project: 'alpha', startedAt: iso('2026-03-10', 9), endedAt: iso('2026-03-10', 10),
+    });
+    assert.equal(created.body.status, '');
+    assert.equal(created.body.percent, null);
+    assert.equal(created.body.eta, null);
+  });
+});
+
 describe('toCSV', () => {
   test('escapes quotes, commas and newlines', () => {
     const out = toCSV([{ a: 'x,y', b: 'say "hi"' }], [

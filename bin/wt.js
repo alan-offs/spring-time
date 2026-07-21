@@ -30,6 +30,7 @@ const commands = {
   serve: cmdServe,
   up: cmdUp,
   down: cmdDown,
+  update: cmdUpdate,
   start: cmdStartTimer,
   stop: cmdStopTimer,
   status: cmdStatus,
@@ -56,6 +57,13 @@ run().catch((err) => {
 // ---------------------------------------------------------------- server ----
 
 async function cmdServe() {
+  // Auto-pull on boot: pick up new commits before the server code is loaded, so
+  // this same start runs the fresh src/ and public/. Best-effort — never let an
+  // offline machine or a dirty tree block startup (launchd relaunches us on exit).
+  await execP('git', ['-C', ROOT, 'pull', '--ff-only', '--quiet'])
+    .then(() => console.log('✓ pulled latest'))
+    .catch(() => {});
+
   const { createServer } = await import(join(ROOT, 'src/server.js'));
   const server = createServer({ dbFile: config.dbFile, token: config.token });
   await new Promise((resolve) => server.listen(config.port, '127.0.0.1', resolve));
@@ -96,6 +104,26 @@ async function cmdDown() {
     await new Promise((r) => setTimeout(r, 100));
   }
   console.log(`! pid ${pid} did not exit; still listening on ${BASE}`);
+}
+
+// Pull the latest version and restart the running server onto it. Invoked from
+// the terminal (`wt update`) and, detached, by the dashboard's Update button
+// (src/update.js applyUpdate). Fast-forward only — never rewrites local work.
+async function cmdUpdate() {
+  let out;
+  try {
+    out = await execP('git', ['-C', ROOT, 'pull', '--ff-only']);
+  } catch (err) {
+    throw new Error(
+      `git pull failed — resolve manually in ${ROOT}\n  ${(err.stderr || err.message).trim()}`
+    );
+  }
+  if (/Already up to date/i.test(out)) return console.log('✓ already up to date');
+
+  await cmdDown();
+  await cmdUp();
+  const sha = await execP('git', ['-C', ROOT, 'rev-parse', '--short', 'HEAD']).catch(() => '');
+  console.log(`✓ updated${sha ? ` to ${sha.trim()}` : ''}`);
 }
 
 /** Recover the listening pid when the pid file is missing or was clobbered. */
@@ -194,14 +222,14 @@ async function cmdReport({ days, week }) {
   if (flags.project) qs.set('project', flags.project);
 
   const r = await api(`/api/reports/summary?${qs}`);
-  const heading = from === to ? from : `${from} → ${to}`;
+  const heading = from === to ? fmtDay(from) : `${fmtDay(from)} → ${fmtDay(to)}`;
   console.log(`\n  ${heading}   total ${fmt(r.totalSeconds)}  (${r.entryCount} entries)\n`);
 
   if (!r.items.length || !r.totalSeconds) return console.log('  no time tracked\n');
   const width = Math.max(...r.items.map((i) => (i.label || i.key).length));
   const max = Math.max(...r.items.map((i) => i.seconds));
   for (const i of r.items) {
-    const label = (i.label || i.key).padEnd(width);
+    const label = (group === 'day' ? fmtDay(i.key) : (i.label || i.key)).padEnd(width);
     const bar = '█'.repeat(max ? Math.max(1, Math.round((i.seconds / max) * 24)) : 0);
     const pct = ((i.seconds / r.totalSeconds) * 100).toFixed(0).padStart(3);
     console.log(`  ${label}  ${fmt(i.seconds).padStart(7)}  ${pct}%  ${bar}`);
@@ -319,6 +347,7 @@ function cmdHelp() {
     wt open [project]        open the dashboard (or a project page)
     wt up / wt down          start / stop the background server
     wt serve                 run the server in the foreground
+    wt update                pull the latest version and restart
     wt install               autostart at login + alias instructions
 
   API      ${BASE}/api/reports/summary?from=&to=&groupBy=
@@ -353,6 +382,12 @@ function localDay(d) {
   const p = (n) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }
+
+// ISO day key "YYYY-MM-DD" -> day-first display "DD/MM/YYYY".
+const fmtDay = (key) => {
+  const [y, m, d] = key.split('-');
+  return `${d}/${m}/${y}`;
+};
 
 function shiftDay(key, n) {
   const [y, m, d] = key.split('-').map(Number);

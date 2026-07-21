@@ -32,7 +32,11 @@ export function createServer({ dbFile, token }) {
 
     try {
       if (path.startsWith('/api/')) {
-        if (token && !authorized(req, url, token)) {
+        // The OAuth leg is exempt from WT_TOKEN: the callback arrives as a
+        // browser redirect from Google, which cannot be made to carry a bearer
+        // header. Nothing under it reads time data, and identifying yourself
+        // still requires the session cookie.
+        if (token && !path.startsWith('/api/auth/') && !authorized(req, url, token)) {
           return send(res, 401, { error: 'unauthorized' });
         }
         return await handleApi(req, res, url, path);
@@ -42,7 +46,13 @@ export function createServer({ dbFile, token }) {
       return await serveStatic(res, path);
     } catch (err) {
       const status = err instanceof HttpError ? err.status : 500;
-      if (status >= 500) console.error(err);
+      // A thrown HttpError is a deliberate answer even at 5xx (an unconfigured
+      // integration, a failed upstream call) — worth a line, not a stack trace.
+      if (err instanceof HttpError) {
+        if (status >= 500) console.error(`${status} ${err.message}`);
+      } else {
+        console.error(err);
+      }
       send(res, status, { error: err.message });
     }
   });

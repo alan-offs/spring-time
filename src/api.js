@@ -3,6 +3,13 @@ import {
   loadEntries, summarize, timeseries, toCSV, splitTags,
   dayKey, addDays, weekStart,
 } from './reports.js';
+import {
+  authEnabled, beginAuth, completeAuth, endSession, sessionUser, getGoogleAccessToken,
+} from './auth.js';
+import {
+  parseSheetId, monthMatches, matchRows, todayTab, getMeta, getRows, updateRow, a1,
+} from './sheets.js';
+import { updateInfo, applyUpdate } from './update.js';
 
 const nowISO = () => new Date().toISOString();
 
@@ -36,6 +43,9 @@ function shapeEntry(r) {
     startedAt: r.started_at,
     endedAt: r.ended_at,
     running: !r.ended_at,
+    status: r.status || '',
+    percent: r.percent ?? null,
+    eta: r.eta ?? null,
   };
 }
 
@@ -49,6 +59,100 @@ function windowFrom(q) {
 
 export const routes = [
   ['GET', /^\/api\/health$/, () => ({ ok: true, time: nowISO() })],
+
+  ['GET', /^\/api\/update$/, () => updateInfo()],
+  ['POST', /^\/api\/update$/, () => {
+    applyUpdate();
+    return { restarting: true };
+  }],
+
+  // ---- auth ---------------------------------------------------------------
+  // Sign-in is identity only — no endpoint below gates any time data on it.
+  ['GET', /^\/api\/auth\/me$/, (_m, { req }) => ({
+    enabled: authEnabled(),
+    user: authEnabled() ? sessionUser(req) : null,
+  })],
+
+  ['GET', /^\/api\/auth\/google$/, (_m, { query }) => {
+    const { url, cookie } = beginAuth(query.get('next'));
+    return redirect(url, [cookie]);
+  }],
+
+  ['GET', /^\/api\/auth\/google\/callback$/, async (_m, { req, query }) => {
+    // The caller is a browser mid-navigation, not fetch(), so a failure has to
+    // land back in the app with a message rather than as a JSON error page.
+    try {
+      const { next, cookies } = await completeAuth(req, query);
+      return redirect(next, cookies);
+    } catch (err) {
+      return redirect(`/?auth_error=${encodeURIComponent(err.message)}`);
+    }
+  }],
+
+  ['POST', /^\/api\/auth\/logout$/, (_m, { req }) => ({
+    __raw: true,
+    status: 200,
+    headers: {
+      'content-type': 'application/json; charset=utf-8',
+      'set-cookie': [endSession(req)],
+    },
+    body: JSON.stringify({ ok: true }),
+  })],
+
+  // ---- wip ----------------------------------------------------------------
+  // Report the signed-in user's day into their row of the team's monthly WIP
+  // Google Sheet. Every handler needs the user's Google token (Sheets scope);
+  // getGoogleAccessToken throws 401 when the session can't provide one.
+  //
+  // The sheet columns are A Team, B Name, C "will work on today",
+  // D "have done today", E "time more needed", F "need help".
+
+  ['GET', /^\/api\/wip\/title$/, async (_m, { req, query }) => {
+    const id = parseSheetId(query.get('id'));
+    if (!id) throw new HttpError(400, 'missing or malformed sheet id');
+    const token = await getGoogleAccessToken(req);
+    const { title } = await getMeta(token, id);
+    const { ok, month } = monthMatches(title, new Date());
+    return { title, monthOk: ok, month };
+  }],
+
+  ['GET', /^\/api\/wip\/row$/, async (_m, { req, query }) => {
+    const id = parseSheetId(query.get('id'));
+    if (!id) throw new HttpError(400, 'missing or malformed sheet id');
+    const user = sessionUser(req);
+    if (!user) throw new HttpError(401, 'sign in with Google first');
+    const token = await getGoogleAccessToken(req);
+
+    const meta = await getMeta(token, id);
+    const { ok, month } = monthMatches(meta.title, new Date());
+    const tab = todayTab(meta.tabs, new Date());
+    // Don't read rows from the wrong month's file — the client shows the warning
+    // and stops.
+    const candidates = ok && tab ? matchRows(await getRows(token, id, tab), user.name) : [];
+    return { title: meta.title, monthOk: ok, month, tab, candidates };
+  }],
+
+  ['POST', /^\/api\/wip\/report$/, async (_m, { req, body }) => {
+    const id = parseSheetId(body.id);
+    if (!id) throw new HttpError(400, 'missing or malformed sheet id');
+    const tab = String(body.tab || '').trim();
+    if (!tab) throw new HttpError(400, 'missing tab');
+    const rowNumber = Number(body.rowNumber);
+    if (!Number.isInteger(rowNumber) || rowNumber < 1) throw new HttpError(400, 'invalid row');
+
+    const token = await getGoogleAccessToken(req);
+    // Re-check the month server-side: the client already warned, but never trust
+    // it to have stopped — this is the guard that actually prevents a wrong-month
+    // write.
+    const meta = await getMeta(token, id);
+    const { ok, month } = monthMatches(meta.title, new Date());
+    if (!ok) throw new HttpError(409, `that sheet is not ${month} — nothing was written`);
+
+    // The daily-report preview goes into column D only ("What I have done for
+    // today" / END OF DAY); nothing else in the row is touched.
+    await updateRow(token, id, a1(tab, ['D', 'D'], rowNumber), [String(body.content ?? '')]);
+    return { ok: true };
+  }],
 
   // ---- projects -----------------------------------------------------------
   ['GET', /^\/api\/projects$/, () => {
@@ -99,9 +203,14 @@ export const routes = [
     // Scope the totals when the caller is looking at a single project, so the
     // tiles agree with the charts beside them.
     const scope = query.get('project') ? slugify(query.get('project')) : null;
+    const statuses = handle()
+      .prepare("SELECT DISTINCT status FROM entries WHERE status <> '' ORDER BY status")
+      .all()
+      .map((row) => row.status);
     return {
       running: r ? shapeEntry(r) : null,
       scope,
+      statuses,
       todaySeconds: summarize({ from: today, to: today, project: scope }).totalSeconds,
       weekSeconds: summarize({ from: weekStart(today), to: today, project: scope }).totalSeconds,
     };
@@ -162,6 +271,7 @@ export const routes = [
       id: e.id, project: e.project, projectName: e.projectName, color: e.color,
       description: e.description, tags: e.tags, startedAt: e.startedAt,
       endedAt: e.endedAt, running: e.running, seconds: e.seconds,
+      status: e.status, percent: e.percent, eta: e.eta,
     }));
   }],
 
@@ -177,11 +287,14 @@ export const routes = [
     }
 
     const project = ensureProject(body.project, body.projectName);
+    const { status, percent, eta } = normalizeStatus(body);
     const info = handle()
       .prepare(
-        'INSERT INTO entries (project_id, description, tags, started_at, ended_at) VALUES (?, ?, ?, ?, ?)'
+        `INSERT INTO entries (project_id, description, tags, started_at, ended_at, status, percent, eta)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
       )
-      .run(project.id, body.description || '', normalizeTags(body.tags), startedAt, endedAt);
+      .run(project.id, body.description || '', normalizeTags(body.tags), startedAt, endedAt,
+           status, percent, eta);
     return getEntry(info.lastInsertRowid);
   }],
 
@@ -200,13 +313,26 @@ export const routes = [
     if (!ended && new Date(started) > new Date()) {
       throw new HttpError(400, 'startedAt cannot be in the future while the timer is running');
     }
+    // Re-normalize whenever any of status/percent/eta is supplied, so the
+    // WIP-gating stays consistent (e.g. switching to Done clears percent/eta);
+    // otherwise keep what's stored.
+    const touchesStatus = 'status' in body || 'percent' in body || 'eta' in body;
+    const { status, percent, eta } = touchesStatus
+      ? normalizeStatus({
+          status: 'status' in body ? body.status : e.status,
+          percent: 'percent' in body ? body.percent : e.percent,
+          eta: 'eta' in body ? body.eta : e.eta,
+        })
+      : { status: e.status, percent: e.percent, eta: e.eta };
     handle()
       .prepare(
-        `UPDATE entries SET project_id = ?, description = ?, tags = ?, started_at = ?, ended_at = ?
+        `UPDATE entries SET project_id = ?, description = ?, tags = ?, started_at = ?, ended_at = ?,
+                            status = ?, percent = ?, eta = ?
           WHERE id = ?`
       )
       .run(projectId, body.description ?? e.description,
-           body.tags === undefined ? e.tags : normalizeTags(body.tags), started, ended, e.id);
+           body.tags === undefined ? e.tags : normalizeTags(body.tags), started, ended,
+           status, percent, eta, e.id);
     return getEntry(e.id);
   }],
 
@@ -276,6 +402,20 @@ function normalizeTags(tags) {
   return splitTags(tags).join(',');
 }
 
+/**
+ * percent/eta only mean anything while a task is in progress, so anything but a
+ * 'WIP' status stores them as NULL. percent is clamped to an integer 0-100.
+ */
+function normalizeStatus(body) {
+  const status = String(body.status ?? '').trim();
+  if (status !== 'WIP') return { status, percent: null, eta: null };
+  const raw = body.percent;
+  const n = raw === null || raw === undefined || raw === '' ? NaN : Number(raw);
+  const percent = Number.isFinite(n) ? Math.max(0, Math.min(100, Math.round(n))) : null;
+  const rawEta = body.eta == null ? '' : String(body.eta).trim();
+  return { status, percent, eta: rawEta || null };
+}
+
 function getEntry(id) {
   return shapeEntry(
     handle()
@@ -285,6 +425,15 @@ function getEntry(id) {
       )
       .get(Number(id))
   );
+}
+
+function redirect(location, cookies = []) {
+  return {
+    __raw: true,
+    status: 302,
+    headers: { location, ...(cookies.length ? { 'set-cookie': cookies } : {}) },
+    body: '',
+  };
 }
 
 function csv(text, filename) {

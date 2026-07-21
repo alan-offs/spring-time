@@ -7,7 +7,7 @@ set -euo pipefail
 # Run from a checkout we install in place; piped from curl (no script file on
 # disk) we clone first, then re-exec from the clone. Override with WT_REPO/WT_DEST.
 if [ -z "${BASH_SOURCE:-}" ] || [ ! -f "${BASH_SOURCE[0]:-/nonexistent}" ]; then
-  REPO_URL="${WT_REPO:-git@github.com:alan-offs/spring-time.git}"
+  REPO_URL="${WT_REPO:-https://github.com/alan-offs/spring-time.git}"
   DEST="${WT_DEST:-$HOME/spring-time}"
   if [ -d "$DEST/.git" ]; then
     echo "→ updating existing checkout at $DEST"

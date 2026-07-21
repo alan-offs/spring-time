@@ -33,7 +33,7 @@ when you'd rather not leave the shell.
 ## Install
 
 ```bash
-git clone git@github.com:alan-offs/spring-time.git ~/spring-time
+git clone https://github.com/alan-offs/spring-time.git ~/spring-time
 cd ~/spring-time
 ./install.sh          # links `wt`, sets macOS autostart, prints next steps
 ```
@@ -41,7 +41,7 @@ cd ~/spring-time
 Or in one line:
 
 ```bash
-git clone git@github.com:alan-offs/spring-time.git ~/spring-time && cd ~/spring-time && ./install.sh
+git clone https://github.com/alan-offs/spring-time.git ~/spring-time && cd ~/spring-time && ./install.sh
 ```
 
 `install.sh` checks for Node ≥ 22.5, puts `wt` on your PATH (`npm link`, or a shell

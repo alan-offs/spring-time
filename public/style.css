@@ -296,6 +296,9 @@ button:focus-visible { outline: 3px solid var(--md-primary); outline-offset: 2px
 /* MD3 outlined field with a floating label. The label is a real <label>, which
    also retires the placeholder-as-label pattern this UI used before. */
 .field { position: relative; display: flex; min-width: 0; }
+/* .field sets display:flex, which would otherwise beat the UA [hidden] rule and
+   keep JS-hidden fields (the Start/End vs Hours/Minutes swap) on screen. */
+.field[hidden] { display: none; }
 .field > input,
 .field > select {
   width: 100%; min-width: 0;
@@ -450,6 +453,39 @@ button:focus-visible { outline: 3px solid var(--md-primary); outline-offset: 2px
   --check: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M9 16.2 4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z'/%3E%3C/svg%3E");
 }
 @media (pointer: coarse) { .chip { height: 44px; min-height: 44px; } }
+
+/* MD3 switch — flips the entry dialog between Start/End and a Duration entry. */
+.switch {
+  display: inline-flex; align-items: center; gap: 12px;
+  padding: 4px 4px 4px 0; margin-bottom: 8px; min-height: 0;
+  border-radius: var(--md-corner-sm);
+  background: none; color: var(--md-on-surface); justify-content: flex-start;
+  font: 400 14px/20px inherit; letter-spacing: .00714em;
+}
+.switch-track {
+  flex: none; position: relative; width: 52px; height: 32px;
+  border-radius: 16px; border: 2px solid var(--md-outline);
+  background: var(--md-surface-variant);
+  transition: background-color var(--md-dur-short) var(--md-ease-standard),
+              border-color var(--md-dur-short) var(--md-ease-standard);
+}
+.switch-thumb {
+  position: absolute; top: 50%; left: 8px; width: 16px; height: 16px;
+  border-radius: 50%; background: var(--md-outline);
+  transform: translate(0, -50%);
+  transition: transform var(--md-dur-short) var(--md-ease-emphasized),
+              width var(--md-dur-short) var(--md-ease-emphasized),
+              height var(--md-dur-short) var(--md-ease-emphasized),
+              background-color var(--md-dur-short) var(--md-ease-standard);
+}
+.switch[aria-checked="true"] .switch-track {
+  background: var(--md-primary); border-color: var(--md-primary);
+}
+.switch[aria-checked="true"] .switch-thumb {
+  width: 24px; height: 24px; background: var(--md-on-primary);
+  transform: translate(20px, -50%);
+}
+.switch:focus-visible { outline: 3px solid var(--md-primary); outline-offset: 2px; }
 
 /* ---------------------------------------------------------------- charts -- */
 .charts { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 24px; }

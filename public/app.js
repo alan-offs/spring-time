@@ -996,6 +996,23 @@ const dialog = $('entry-dialog');
 const form = $('entry-form');
 let editingId = null;
 
+/** Switch the dialog between explicit Start/End and split Hours/Minutes fields.
+ *  `required` has to move with visibility: a hidden required input blocks submit. */
+function setDialogMode(mode, { seconds, focus } = {}) {
+  form.dataset.mode = mode;
+  const times = mode === 'times';
+  $('field-start').hidden = $('field-end').hidden = !times;
+  $('field-duration-h').hidden = $('field-duration-m').hidden = times;
+  form.start.required = form.end.required = times;
+  $('duration-switch').setAttribute('aria-checked', String(!times));
+  // Seed Hours/Minutes from the current start/end when arriving in duration mode.
+  if (!times && seconds != null) {
+    form.durationH.value = Math.floor(seconds / 3600);
+    form.durationM.value = Math.round((seconds % 3600) / 60);
+  }
+  if (focus) (times ? form.start : form.durationH).focus();
+}
+
 function openDialog(entry) {
   editingId = entry ? entry.id : null;
   $('dialog-title').textContent = entry ? 'Edit entry' : 'Add entry';
@@ -1011,6 +1028,11 @@ function openDialog(entry) {
   form.date.value = dayKey(start);
   form.start.value = timeValue(start);
   form.end.value = timeValue(end);
+  form.durationH.value = '';
+  form.durationM.value = '';
+
+  // The dialog always opens on explicit Start/End; the switch reveals Duration.
+  setDialogMode('times');
 
   dialog.showModal();
   (form.project.value ? form.description : form.project).focus();
@@ -1018,12 +1040,6 @@ function openDialog(entry) {
 
 form.addEventListener('submit', async (e) => {
   e.preventDefault();
-  const startedAt = localISO(form.date.value, form.start.value);
-  // An end before the start means the session ran past midnight.
-  let endedAt = localISO(form.date.value, form.end.value);
-  if (new Date(endedAt) <= new Date(startedAt)) {
-    endedAt = new Date(new Date(endedAt).getTime() + 86400000).toISOString();
-  }
 
   // No status/percent/eta here — those are report-only now, so a PATCH that
   // omits them leaves whatever an older build stored untouched.
@@ -1031,9 +1047,31 @@ form.addEventListener('submit', async (e) => {
     project: form.project.value.trim(),
     description: form.description.value.trim(),
     tags: form.tags.value,
-    startedAt,
-    endedAt,
   };
+
+  if (form.dataset.mode === 'duration') {
+    const h = parseInt(form.durationH.value, 10) || 0;
+    const m = parseInt(form.durationM.value, 10) || 0;
+    const seconds = h * 3600 + m * 60;
+    if (seconds <= 0) {
+      $('dialog-error').textContent = 'Enter hours or minutes.';
+      $('dialog-error').hidden = false;
+      return;
+    }
+    // The entry ends at the current time-of-day on the chosen date and runs back
+    // from there. On a past date that can cross midnight; the report layer splits
+    // such a session across both days, so it still lands correctly.
+    body.endedAt = localISO(form.date.value, timeValue(new Date()));
+    if (editingId) body.startedAt = new Date(new Date(body.endedAt).getTime() - seconds * 1000).toISOString();
+    else body.duration = `${h}h ${m}m`;
+  } else {
+    body.startedAt = localISO(form.date.value, form.start.value);
+    // An end before the start means the session ran past midnight.
+    body.endedAt = localISO(form.date.value, form.end.value);
+    if (new Date(body.endedAt) <= new Date(body.startedAt)) {
+      body.endedAt = new Date(new Date(body.endedAt).getTime() + 86400000).toISOString();
+    }
+  }
 
   try {
     if (editingId) await api(`/entries/${editingId}`, { method: 'PATCH', body });
@@ -1370,6 +1408,19 @@ $('retry-btn').onclick = async (e) => {
 
 $('add-btn').onclick = () => openDialog(null);
 $('dialog-cancel').onclick = () => dialog.close();
+
+$('duration-switch').onclick = () => {
+  if (form.dataset.mode === 'duration') {
+    setDialogMode('times', { focus: true });
+    return;
+  }
+  // Turning the switch on: seed Hours/Minutes from whatever Start/End currently hold.
+  const start = localISO(form.date.value, form.start.value);
+  let end = localISO(form.date.value, form.end.value);
+  if (new Date(end) <= new Date(start)) end = new Date(new Date(end).getTime() + 86400000).toISOString();
+  const seconds = Math.round((new Date(end) - new Date(start)) / 1000);
+  setDialogMode('duration', { seconds: seconds > 0 ? seconds : null, focus: true });
+};
 
 // Custom MD3 controls stand in for the native <select>, <datalist> and
 // date/time pickers. Each keeps the same value format the API already speaks,

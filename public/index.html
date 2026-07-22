@@ -127,18 +127,30 @@
       <input name="description" placeholder=" " id="f-desc">
       <label for="f-desc">Description</label>
     </div>
+    <button type="button" class="switch" id="duration-switch" role="switch" aria-checked="false">
+      <span class="switch-track"><span class="switch-thumb"></span></span>
+      <span>Enter duration instead</span>
+    </button>
     <div class="row">
       <div class="field">
         <input type="text" name="date" required placeholder=" " id="f-date">
         <label for="f-date">Date</label>
       </div>
-      <div class="field">
+      <div class="field" id="field-start">
         <input type="text" name="start" required placeholder=" " id="f-start">
         <label for="f-start">Start</label>
       </div>
-      <div class="field">
+      <div class="field" id="field-end">
         <input type="text" name="end" required placeholder=" " id="f-end">
         <label for="f-end">End</label>
+      </div>
+      <div class="field" id="field-duration-h" hidden>
+        <input type="text" inputmode="numeric" name="durationH" placeholder=" " id="f-duration-h">
+        <label for="f-duration-h">Hours</label>
+      </div>
+      <div class="field" id="field-duration-m" hidden>
+        <input type="text" inputmode="numeric" name="durationM" placeholder=" " id="f-duration-m">
+        <label for="f-duration-m">Minutes</label>
       </div>
     </div>
     <div class="field">

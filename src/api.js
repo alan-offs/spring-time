@@ -1,7 +1,7 @@
 import { handle, ensureProject, slugify, HttpError } from './db.js';
 import {
   loadEntries, summarize, timeseries, toCSV, splitTags,
-  dayKey, addDays, weekStart,
+  dayKey, addDays, weekStart, parseDuration,
 } from './reports.js';
 import {
   authEnabled, beginAuth, completeAuth, endSession, sessionUser, getGoogleAccessToken,
@@ -277,11 +277,30 @@ export const routes = [
 
   ['POST', /^\/api\/entries$/, (_m, { body }) => {
     if (!body.project) throw new HttpError(400, 'project required');
-    if (!body.startedAt || !body.endedAt) throw new HttpError(400, 'startedAt and endedAt required');
     // Validate everything before ensureProject, so a rejected request never
     // leaves an empty project behind.
-    const startedAt = parseTime(body.startedAt, 'startedAt');
-    const endedAt = parseTime(body.endedAt, 'endedAt');
+    const hasDuration = body.duration !== undefined && body.duration !== null && body.duration !== '';
+    let startedAt, endedAt;
+    if (hasDuration) {
+      // A duration only has meaning against an anchor: prefer an explicit end
+      // (the dashboard sends "the selected date at now"), then a start, else now.
+      const seconds = parseDuration(body.duration);
+      if (!seconds) throw new HttpError(400, 'duration is not valid');
+      if (body.endedAt) {
+        endedAt = parseTime(body.endedAt, 'endedAt');
+        startedAt = new Date(new Date(endedAt).getTime() - seconds * 1000).toISOString();
+      } else if (body.startedAt) {
+        startedAt = parseTime(body.startedAt, 'startedAt');
+        endedAt = new Date(new Date(startedAt).getTime() + seconds * 1000).toISOString();
+      } else {
+        endedAt = nowISO();
+        startedAt = new Date(Date.now() - seconds * 1000).toISOString();
+      }
+    } else {
+      if (!body.startedAt || !body.endedAt) throw new HttpError(400, 'startedAt and endedAt required');
+      startedAt = parseTime(body.startedAt, 'startedAt');
+      endedAt = parseTime(body.endedAt, 'endedAt');
+    }
     if (new Date(endedAt) <= new Date(startedAt)) {
       throw new HttpError(400, 'endedAt must be after startedAt');
     }

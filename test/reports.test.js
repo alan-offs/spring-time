@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { open, handle, ensureProject, slugify } from '../src/db.js';
 import { createServer } from '../src/server.js';
-import { summarize, timeseries, dayKey, addDays, weekStart, toCSV } from '../src/reports.js';
+import { summarize, timeseries, dayKey, addDays, weekStart, toCSV, parseDuration } from '../src/reports.js';
 
 const iso = (day, h, m = 0) => {
   const [y, mo, d] = day.split('-').map(Number);
@@ -153,6 +153,27 @@ describe('timeseries', () => {
   });
 });
 
+describe('parseDuration', () => {
+  test('parses hours and minutes in any spacing', () => {
+    assert.equal(parseDuration('1h 45m'), 6300);
+    assert.equal(parseDuration('1h45m'), 6300);
+    assert.equal(parseDuration('45m'), 2700);
+    assert.equal(parseDuration('2h'), 7200);
+    assert.equal(parseDuration('1.5h'), 5400);
+    assert.equal(parseDuration('90m'), 5400);
+  });
+
+  test('reads a bare number as minutes', () => {
+    assert.equal(parseDuration('90'), 5400);
+  });
+
+  test('returns null for junk or non-positive input', () => {
+    for (const bad of ['', '   ', 'abc', '0m', '0h 0m', 'h', null, undefined]) {
+      assert.equal(parseDuration(bad), null, `expected null for ${JSON.stringify(bad)}`);
+    }
+  });
+});
+
 describe('date helpers', () => {
   test('addDays crosses month and year boundaries', () => {
     assert.equal(addDays('2026-03-31', 1), '2026-04-01');
@@ -188,6 +209,35 @@ describe('manual entries and start-time edits', () => {
     assert.equal(r.body.project, 'backfilled-project');
     assert.deepEqual(r.body.tags, ['build']);
     assert.equal(summarize({ from: '2026-03-10', to: '2026-03-10' }).totalSeconds, 2.5 * 3600);
+  });
+
+  test('adds a duration entry anchored to a given end time', async () => {
+    const endedAt = iso('2026-03-10', 17);
+    const r = await call('POST', '/api/entries', {
+      project: 'duration-project', description: 'no clock', duration: '1h 45m', endedAt,
+    });
+    assert.equal(r.status, 200);
+    assert.equal(r.body.startedAt, iso('2026-03-10', 15, 15));
+    assert.equal(r.body.endedAt, endedAt);
+    assert.equal(summarize({ from: '2026-03-10', to: '2026-03-10' }).totalSeconds, 6300);
+  });
+
+  test('anchors a duration forward from a start time', async () => {
+    const r = await call('POST', '/api/entries', {
+      project: 'alpha', duration: '30m', startedAt: iso('2026-03-10', 9),
+    });
+    assert.equal(r.status, 200);
+    assert.equal(r.body.endedAt, iso('2026-03-10', 9, 30));
+  });
+
+  test('rejects an unparseable duration with 400', async () => {
+    const r = await call('POST', '/api/entries', {
+      project: 'never-created-2', duration: 'soon', endedAt: iso('2026-03-10', 17),
+    });
+    assert.equal(r.status, 400);
+    assert.match(r.body.error, /duration is not valid/);
+    const exists = handle().prepare('SELECT 1 FROM projects WHERE slug = ?').get('never-created-2');
+    assert.equal(exists, undefined);
   });
 
   test('rejects a manual record that ends before it starts', async () => {

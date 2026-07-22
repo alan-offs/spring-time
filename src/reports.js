@@ -158,6 +158,24 @@ export function formatDuration(seconds) {
   return h ? `${h}h ${m}m` : `${m}m`;
 }
 
+/**
+ * Inverse of formatDuration: "1h 45m" (or "1h45m", "1.5h", "45m") -> seconds.
+ * A bare number with no unit is read as minutes ("90" -> 5400). Returns an
+ * integer > 0, or null when the input parses to nothing / a non-positive total.
+ */
+export function parseDuration(input) {
+  const s = String(input ?? '').trim().toLowerCase();
+  if (!s) return null;
+  if (/^\d+(?:\.\d+)?$/.test(s)) {
+    const total = Math.round(Number(s) * 60);
+    return total > 0 ? total : null;
+  }
+  const m = s.match(/^(?:(\d+(?:\.\d+)?)\s*h)?\s*(?:(\d+(?:\.\d+)?)\s*m)?$/);
+  if (!m || (m[1] === undefined && m[2] === undefined)) return null;
+  const total = Math.round((Number(m[1] || 0) * 3600) + (Number(m[2] || 0) * 60));
+  return total > 0 ? total : null;
+}
+
 export function toCSV(rows, columns) {
   const esc = (v) => {
     const s = v === null || v === undefined ? '' : String(v);

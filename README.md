@@ -26,7 +26,9 @@ when you'd rather not leave the shell.
   showing negative elapsed.
 - **Worked without the timer at all?** **+ Add entry** opens a form for project,
   description, date, start, end and tags. An end time earlier than the start is
-  treated as a session that ran past midnight.
+  treated as a session that ran past midnight. Don't know the exact clock times?
+  Switch the form to **Duration** and just type how long you worked (`1h 45m`); the
+  entry is logged ending at the current time-of-day on the date you picked.
 - **Got something wrong?** Every finished row in the entries table has **Edit**,
   which reopens the same form.
 
@@ -141,7 +143,7 @@ Everything the dashboard does is a documented endpoint. Base `http://localhost:4
 | `POST` | `/api/projects/:slug/start` | `{description, tags}` — stops any running timer |
 | `POST` | `/api/stop` | stop the running timer |
 | `GET` | `/api/entries` | `?from&to&project&tag&limit` |
-| `POST` | `/api/entries` | `{project, description, tags, startedAt, endedAt}` |
+| `POST` | `/api/entries` | `{project, description, tags, startedAt, endedAt}`; or `{project, duration, endedAt\|startedAt}` — `duration` like `"1h 45m"` fills in the missing bound |
 | `PATCH` | `/api/entries/:id` | edit any field |
 | `DELETE` | `/api/entries/:id` | |
 | `GET` | `/api/reports/summary` | `?from&to&project&tag&groupBy=project\|day\|tag` |

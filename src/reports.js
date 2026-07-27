@@ -55,6 +55,11 @@ export function loadEntries({ from, to, project, tag } = {}) {
 
     const start = new Date(r.started_at);
     const end = r.ended_at ? new Date(r.ended_at) : now;
+    // A row with an unparseable timestamp would pass the window test below (every
+    // NaN comparison is false) and then contribute NaN seconds, poisoning the
+    // total, the chart and the CSVs. Drop it rather than let one bad row make
+    // every report unreadable.
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) continue;
     if (end <= lo || start >= hi) continue;
 
     const clippedStart = start < lo ? lo : start;

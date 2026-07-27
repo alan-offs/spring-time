@@ -99,11 +99,18 @@ const timeValue = (iso) => {
   return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
 };
 
-/** "YYYY-MM-DD" + "HH:MM" (local) -> ISO. */
+/**
+ * "YYYY-MM-DD" + "HH:MM" (local) -> ISO, or null when either half is missing or
+ * malformed. Returning null rather than throwing matters: the pickers in md.js
+ * can hand us a blank field, and `new Date(NaN).toISOString()` would abort the
+ * submit handler mid-flight with a RangeError instead of showing an error.
+ */
 function localISO(day, time) {
-  const [y, mo, d] = day.split('-').map(Number);
-  const [h, mi] = time.split(':').map(Number);
-  return new Date(y, mo - 1, d, h, mi, 0, 0).toISOString();
+  const [y, mo, d] = String(day ?? '').split('-').map(Number);
+  const [h, mi] = String(time ?? '').split(':').map(Number);
+  if ([y, mo, d, h, mi].some((n) => !Number.isFinite(n))) return null;
+  const date = new Date(y, mo - 1, d, h, mi, 0, 0);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
 function range() {
@@ -167,6 +174,18 @@ function niceTicks(max, count = 3) {
   for (let v = 0; v <= max + step / 2; v += step) ticks.push(v);
   return ticks;
 }
+
+/**
+ * Timeline tick steps, in seconds. Each one divides an hour or is a whole number
+ * of hours, so every tick lands on a clean HH:MM no matter where the day starts.
+ */
+const TIME_STEPS = [300, 600, 900, 1800, 3600, 7200, 10800, 21600];
+
+/**
+ * Seconds-from-midnight -> "HH:MM", wrapping 24:00 back to 00:00. Lives out here
+ * because `renderGantt` shadows `pad` with its padding object.
+ */
+const tickTime = (sec) => `${pad(Math.floor(sec / 3600) % 24)}:${pad(Math.floor(sec / 60) % 60)}`;
 
 function bindTip(node, tipEl, html) {
   const show = (e) => {
@@ -260,7 +279,11 @@ function renderDaily(series) {
   host.append(svg);
 }
 
-/** Today's sessions laid out on a fixed 00:00–24:00 timeline, one row each. */
+/**
+ * Today's sessions, one row each, on a timeline that spans only the tracked part
+ * of the day rather than a fixed 00:00–24:00 — a 09:12–17:43 day filled barely a
+ * third of the plot, which is where the gaps you want to read actually live.
+ */
 function renderGantt(entries) {
   const host = $('daily-chart');
   host.textContent = '';
@@ -292,7 +315,22 @@ function renderGantt(entries) {
   const pad = { top: 10, right: 10, bottom: 22 };
   const H = pad.top + rows.length * rowH + pad.bottom;
   const plotW = W - labelW - pad.right;
-  const x = (sec) => labelW + (sec / DAY) * plotW;
+
+  // Domain = first start to last end (now, for a running timer), rounded outward
+  // to the tick step so the labels stay clean and the outer bars keep a margin.
+  // `niceTicks` is no help here: its 1/2/2.5/5/10 progression yields decimal
+  // steps, and time wants 5m/15m/1h/6h. Budget 50px per "HH:MM" label (~32px at
+  // .tick's 11px tabular-nums), so a narrow card coarsens the step instead of
+  // colliding labels; `- 1` leaves room for the rounding to add an interval.
+  // Every step divides 86400, so `lo` being a multiple of it from local midnight
+  // makes every tick a whole clock time.
+  const lo0 = rows[0].start, hi0 = Math.max(...rows.map((r) => r.end));
+  const maxIntervals = Math.max(3, Math.floor(plotW / 50));
+  const step = TIME_STEPS.find((s) => (hi0 - lo0) / s <= maxIntervals - 1)
+    ?? TIME_STEPS[TIME_STEPS.length - 1];
+  const lo = Math.floor(lo0 / step) * step;
+  const hi = Math.ceil(hi0 / step) * step;
+  const x = (sec) => labelW + ((sec - lo) / (hi - lo)) * plotW;
 
   const svg = el('svg', { viewBox: `0 0 ${W} ${H}`, height: H, role: 'img' });
   const first = rows[0], last = rows[rows.length - 1];
@@ -300,23 +338,24 @@ function renderGantt(entries) {
     + `${fmtDuration(total)} in total, from ${fmtTime(first.e.startedAt)} to `
     + `${last.e.running ? 'now' : fmtTime(last.e.endedAt)}.`));
 
-  // Hour gridlines + labels every 6h, drawn under the bars.
-  for (let h = 0; h <= 24; h += 6) {
-    const gx = x(h * 3600);
+  // Gridlines + labels every `step`, drawn under the bars. The edge ticks anchor
+  // inward so they don't hang off the plot.
+  for (let sec = lo; sec <= hi; sec += step) {
+    const gx = x(sec);
     svg.append(el('line', {
       x1: gx, x2: gx, y1: pad.top, y2: H - pad.bottom,
       stroke: 'var(--grid)', 'stroke-width': 1, 'shape-rendering': 'crispEdges',
     }));
     svg.append(el('text', {
       x: gx, y: H - 6, class: 'tick',
-      'text-anchor': h === 0 ? 'start' : h === 24 ? 'end' : 'middle',
-    }, `${String(h).padStart(2, '0')}:00`));
+      'text-anchor': sec === lo ? 'start' : sec === hi ? 'end' : 'middle',
+    }, tickTime(sec)));
   }
 
   rows.forEach((r, i) => {
     const { e } = r;
     const yTop = pad.top + i * rowH + (rowH - barH) / 2;
-    const w = Math.max(2, ((r.end - r.start) / DAY) * plotW);
+    const w = Math.max(2, x(r.end) - x(r.start));
     const label = e.description || e.projectName || e.project;
 
     svg.append(el('text', {
@@ -974,7 +1013,9 @@ $('start-time').addEventListener('change', async (e) => {
   if (!value) return renderTimer();
 
   const current = new Date(state.running.startedAt);
-  let next = new Date(localISO(dayKey(current), value));
+  const iso = localISO(dayKey(current), value);
+  if (!iso) return renderTimer();
+  let next = new Date(iso);
   if (next > new Date()) next = new Date(next.getTime() - 86400000);
 
   try {
@@ -1049,25 +1090,28 @@ form.addEventListener('submit', async (e) => {
     tags: form.tags.value,
   };
 
+  const dialogError = (message) => {
+    $('dialog-error').textContent = message;
+    $('dialog-error').hidden = false;
+  };
+
   if (form.dataset.mode === 'duration') {
     const h = parseInt(form.durationH.value, 10) || 0;
     const m = parseInt(form.durationM.value, 10) || 0;
     const seconds = h * 3600 + m * 60;
-    if (seconds <= 0) {
-      $('dialog-error').textContent = 'Enter hours or minutes.';
-      $('dialog-error').hidden = false;
-      return;
-    }
+    if (seconds <= 0) return dialogError('Enter hours or minutes.');
     // The entry ends at the current time-of-day on the chosen date and runs back
     // from there. On a past date that can cross midnight; the report layer splits
     // such a session across both days, so it still lands correctly.
     body.endedAt = localISO(form.date.value, timeValue(new Date()));
+    if (!body.endedAt) return dialogError('Enter a valid date.');
     if (editingId) body.startedAt = new Date(new Date(body.endedAt).getTime() - seconds * 1000).toISOString();
     else body.duration = `${h}h ${m}m`;
   } else {
     body.startedAt = localISO(form.date.value, form.start.value);
     // An end before the start means the session ran past midnight.
     body.endedAt = localISO(form.date.value, form.end.value);
+    if (!body.startedAt || !body.endedAt) return dialogError('Enter a valid date and time.');
     if (new Date(body.endedAt) <= new Date(body.startedAt)) {
       body.endedAt = new Date(new Date(body.endedAt).getTime() + 86400000).toISOString();
     }
@@ -1414,9 +1458,11 @@ $('duration-switch').onclick = () => {
     setDialogMode('times', { focus: true });
     return;
   }
-  // Turning the switch on: seed Hours/Minutes from whatever Start/End currently hold.
+  // Turning the switch on: seed Hours/Minutes from whatever Start/End currently
+  // hold — or from nothing, when either field is blank or unparseable.
   const start = localISO(form.date.value, form.start.value);
   let end = localISO(form.date.value, form.end.value);
+  if (!start || !end) return setDialogMode('duration', { seconds: null, focus: true });
   if (new Date(end) <= new Date(start)) end = new Date(new Date(end).getTime() + 86400000).toISOString();
   const seconds = Math.round((new Date(end) - new Date(start)) / 1000);
   setDialogMode('duration', { seconds: seconds > 0 ? seconds : null, focus: true });

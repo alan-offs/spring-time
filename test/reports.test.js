@@ -307,6 +307,106 @@ describe('manual entries and start-time edits', () => {
   });
 });
 
+// An invalid time value must never reach Date.toISOString() — that throws a
+// RangeError, which the server can only report as an opaque 500.
+describe('invalid timestamps', () => {
+  const call = async (method, path, body) => {
+    const res = await fetch(`${base}${path}`, {
+      method,
+      headers: { 'content-type': 'application/json' },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    return { status: res.status, body: await res.json() };
+  };
+
+  /** A row as an older build could have written it: unparseable started_at. */
+  function addCorruptEntry(slug = 'corrupt') {
+    const p = ensureProject(slug);
+    const info = handle()
+      .prepare('INSERT INTO entries (project_id, description, started_at, ended_at) VALUES (?,?,?,?)')
+      .run(p.id, 'x', 'garbage', iso('2026-03-10', 10));
+    return Number(info.lastInsertRowid);
+  }
+
+  test('refuses to start a timer at an unparseable time', async () => {
+    const r = await call('POST', '/api/projects/never-started/start', { startedAt: 'not-a-date' });
+    assert.equal(r.status, 400);
+    assert.match(r.body.error, /startedAt is not a valid date/);
+    assert.equal(handle().prepare('SELECT COUNT(*) n FROM entries').get().n, 0);
+    // Validated before ensureProject, so no empty project is left behind either.
+    assert.equal(handle().prepare('SELECT 1 FROM projects WHERE slug = ?').get('never-started'), undefined);
+  });
+
+  test('refuses to start a timer in the future', async () => {
+    const r = await call('POST', '/api/projects/alpha/start', {
+      startedAt: new Date(Date.now() + 3600_000).toISOString(),
+    });
+    assert.equal(r.status, 400);
+    assert.match(r.body.error, /cannot be in the future/);
+  });
+
+  test('refuses to stop a timer at an unparseable time, leaving it running', async () => {
+    await call('POST', '/api/projects/alpha/start', {});
+    const r = await call('POST', '/api/stop', { endedAt: 'whenever' });
+    assert.equal(r.status, 400);
+    assert.match(r.body.error, /endedAt is not a valid date/);
+    assert.equal((await call('GET', '/api/state')).body.running.project, 'alpha');
+  });
+
+  test('a corrupt running entry does not block starting the next timer', async () => {
+    const p = ensureProject('corrupt');
+    handle()
+      .prepare('INSERT INTO entries (project_id, description, started_at) VALUES (?,?,?)')
+      .run(p.id, 'x', 'garbage');
+
+    const r = await call('POST', '/api/projects/alpha/start', {});
+    assert.equal(r.status, 200);
+    assert.equal(r.body.started.project, 'alpha');
+    assert.equal(r.body.stopped.project, 'corrupt');
+    assert.equal((await call('GET', '/api/state')).body.running.project, 'alpha');
+  });
+
+  test('continuing an entry with a corrupt timestamp is a 409, not a 500', async () => {
+    const id = addCorruptEntry();
+    const r = await call('POST', `/api/entries/${id}/continue`, { mode: 'exclude' });
+    assert.equal(r.status, 409);
+    assert.match(r.body.error, /corrupt timestamp/);
+  });
+
+  test('a refused continue does not stop the timer that was running', async () => {
+    const id = addCorruptEntry();
+    await call('POST', '/api/projects/alpha/start', {});
+    assert.equal((await call('POST', `/api/entries/${id}/continue`, { mode: 'exclude' })).status, 409);
+    assert.equal((await call('GET', '/api/state')).body.running.project, 'alpha');
+  });
+
+  test('patching an entry with a corrupt timestamp is a 409, not a silent re-save', async () => {
+    const id = addCorruptEntry();
+    const r = await call('PATCH', `/api/entries/${id}`, { description: 'renamed' });
+    assert.equal(r.status, 409);
+    assert.match(r.body.error, /corrupt timestamp/);
+  });
+
+  test('one corrupt row cannot poison the totals of every other entry', () => {
+    addCorruptEntry();
+    addEntry('alpha', '2026-03-10', 9, 11);
+    const r = summarize({ from: '2026-03-10', to: '2026-03-10' });
+    assert.equal(r.totalSeconds, 2 * 3600);
+    assert.equal(r.entryCount, 1);
+    assert.deepEqual(r.items.map((i) => i.key), ['alpha']);
+  });
+
+  test('rejects a malformed report window instead of answering with NaN', async () => {
+    const r = await call('GET', '/api/reports/summary?from=oops&to=2026-03-10');
+    assert.equal(r.status, 400);
+    assert.match(r.body.error, /from must be a YYYY-MM-DD date/);
+
+    const to = await call('GET', '/api/reports/summary?from=2026-03-10&to=3/10/2026');
+    assert.equal(to.status, 400);
+    assert.match(to.body.error, /to must be a YYYY-MM-DD date/);
+  });
+});
+
 describe('continuing an entry', () => {
   const call = async (method, path, body) => {
     const res = await fetch(`${base}${path}`, {

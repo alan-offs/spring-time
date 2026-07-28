@@ -1,7 +1,7 @@
 import { handle, ensureProject, slugify, HttpError } from './db.js';
 import {
   loadEntries, summarize, timeseries, toCSV, splitTags,
-  dayKey, addDays, weekStart, parseDuration,
+  dayKey, dayStart, addDays, weekStart, parseDuration,
 } from './reports.js';
 import {
   authEnabled, beginAuth, completeAuth, endSession, sessionUser, getGoogleAccessToken,
@@ -26,8 +26,12 @@ function runningEntry() {
 function stopRunning(at = nowISO()) {
   const running = runningEntry();
   if (!running) return null;
-  // Guard against a clock skew / manual edit producing a negative duration.
-  const end = new Date(at) < new Date(running.started_at) ? running.started_at : at;
+  // Guard against a clock skew / manual edit producing a negative duration. A
+  // corrupt started_at can't be compared and deliberately falls through to `at`
+  // rather than throwing: this runs on the way into `wt start`, and one bad row
+  // must not wedge starting a timer. loadEntries already ignores such a row.
+  const startedMs = Date.parse(running.started_at);
+  const end = Date.parse(at) < startedMs ? running.started_at : at;
   handle().prepare('UPDATE entries SET ended_at = ? WHERE id = ?').run(end, running.id);
   return { ...running, ended_at: end };
 }
@@ -51,8 +55,8 @@ function shapeEntry(r) {
 
 /** Default window: last 7 days, ending today. */
 function windowFrom(q) {
-  const to = q.get('to') || dayKey(new Date());
-  const from = q.get('from') || addDays(to, -6);
+  const to = parseDayKey(q.get('to'), 'to') || dayKey(new Date());
+  const from = parseDayKey(q.get('from'), 'from') || addDays(to, -6);
   const project = q.get('project');
   return { from, to, project: project ? slugify(project) : null, tag: q.get('tag') || null };
 }
@@ -217,16 +221,25 @@ export const routes = [
   }],
 
   ['POST', /^\/api\/projects\/([^/]+)\/start$/, (m, { body }) => {
+    // Validate before ensureProject, so a rejected request never leaves an empty
+    // project behind — and so a bad timestamp is a 400 here rather than a row
+    // that detonates on some later route.
+    const startedAt = body.startedAt ? parseTime(body.startedAt, 'startedAt') : nowISO();
+    // A running timer counts up to now, so a future start would render negative.
+    if (new Date(startedAt) > new Date()) {
+      throw new HttpError(400, 'startedAt cannot be in the future while the timer is running');
+    }
+
     const project = ensureProject(decodeParam(m[1]), body.projectName);
     const stopped = stopRunning();
     handle()
       .prepare('INSERT INTO entries (project_id, description, tags, started_at) VALUES (?, ?, ?, ?)')
-      .run(project.id, body.description || '', normalizeTags(body.tags), body.startedAt || nowISO());
+      .run(project.id, body.description || '', normalizeTags(body.tags), startedAt);
     return { started: shapeEntry(runningEntry()), stopped: stopped ? shapeEntry(stopped) : null };
   }],
 
   ['POST', /^\/api\/stop$/, (_m, { body }) => {
-    const stopped = stopRunning(body.endedAt || nowISO());
+    const stopped = stopRunning(body.endedAt ? parseTime(body.endedAt, 'endedAt') : nowISO());
     if (!stopped) throw new HttpError(409, 'no timer is running');
     return shapeEntry(stopped);
   }],
@@ -246,15 +259,19 @@ export const routes = [
     const e = handle().prepare('SELECT * FROM entries WHERE id = ?').get(Number(m[1]));
     if (!e) throw new HttpError(404, 'entry not found');
     if (!e.ended_at) throw new HttpError(409, 'entry is already running');
+    // Before anything is written: a corrupt stored timestamp has to be refused
+    // without the side effect of having stopped the caller's other timer.
+    const banked = mode === 'exclude'
+      // Clamp negatives the way stopRunning does, so a skewed clock cannot
+      // push started_at into the future.
+      ? Math.max(0, storedMs(e.ended_at, e.id) - storedMs(e.started_at, e.id))
+      : 0;
 
     // Must come first: clearing ended_at while another timer runs would violate
     // idx_entries_single_running and surface as a raw SQLite error, not a 409.
     const stopped = stopRunning();
 
     if (mode === 'exclude') {
-      // Clamp negatives the way stopRunning does, so a skewed clock cannot
-      // push started_at into the future.
-      const banked = Math.max(0, new Date(e.ended_at) - new Date(e.started_at));
       const started = new Date(Date.now() - banked).toISOString();
       handle().prepare('UPDATE entries SET started_at = ?, ended_at = NULL WHERE id = ?')
         .run(started, e.id);
@@ -325,6 +342,11 @@ export const routes = [
     const ended = body.endedAt === null
       ? null
       : body.endedAt ? parseTime(body.endedAt, 'endedAt') : e.ended_at;
+    // Whichever side was kept from the stored row still has to be a real date —
+    // otherwise the two checks below compare NaN, quietly answer false, and save
+    // the corruption straight back.
+    storedMs(started, e.id);
+    if (ended !== null) storedMs(ended, e.id);
     if (ended && new Date(ended) <= new Date(started)) {
       throw new HttpError(400, 'endedAt must be after startedAt');
     }
@@ -405,6 +427,31 @@ function parseTime(value, field) {
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) throw new HttpError(400, `${field} is not a valid date`);
   return d.toISOString();
+}
+
+/**
+ * Milliseconds for a timestamp already in the database. Rows written by an older
+ * build (or edited by hand) can hold something unparseable; arithmetic on it
+ * yields NaN and the next `new Date(NaN).toISOString()` throws a RangeError that
+ * surfaces as a 500. Fail loudly and specifically instead.
+ */
+function storedMs(value, id) {
+  const ms = Date.parse(value);
+  if (Number.isNaN(ms)) throw new HttpError(409, `entry ${id} has a corrupt timestamp: ${value}`);
+  return ms;
+}
+
+/**
+ * A `YYYY-MM-DD` local day key from a query param, or null when absent. An
+ * unparseable key would make every window comparison in loadEntries silently
+ * false (NaN) and every duration NaN, so it is a 400, not a default.
+ */
+function parseDayKey(value, field) {
+  if (!value) return null;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || Number.isNaN(dayStart(value).getTime())) {
+    throw new HttpError(400, `${field} must be a YYYY-MM-DD date`);
+  }
+  return value;
 }
 
 /** Path params arrive percent-encoded; "Acme API" must not slug to "acme-20api". */

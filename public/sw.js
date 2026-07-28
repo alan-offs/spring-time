@@ -1,6 +1,6 @@
 // Cache the app shell so the installed window opens instantly and survives a
 // restarting server. API calls always go to the network — time data is never stale-served.
-const CACHE = 'springtime-v19';
+const CACHE = 'springtime-v21';
 const SHELL = ['/', '/style.css', '/app.js', '/md.js', '/icon.svg', '/manifest.webmanifest'];
 
 self.addEventListener('install', (e) => {

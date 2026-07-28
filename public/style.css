@@ -688,7 +688,7 @@ dialog .row .field { flex: 1 1 140px; }
 #report-dialog { width: min(720px, calc(100vw - 48px)); }
 #report-dialog .sub { margin: -8px 0 12px; }
 
-#report-list { max-height: min(46vh, 420px); overflow: auto; margin-bottom: 20px; }
+#report-list { max-height: min(46vh, 420px); overflow: auto; margin-bottom: 12px; }
 #report-list:empty { margin-bottom: 0; }
 
 .report-row {
@@ -720,6 +720,19 @@ dialog .row .field { flex: 1 1 140px; }
 .report-controls .md-select { flex: 0 0 200px; }
 .report-wip { display: flex; gap: 12px; flex: 1 1 220px; }
 .report-wip .field { flex: 1 1 100px; }
+
+/* Sits between the task list and the preview, reading as the list's footer. */
+.report-total {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 12px;
+  margin-bottom: 20px;
+  font-size: 14px; line-height: 20px;
+  color: var(--md-on-surface-variant);
+}
+.report-total-value {
+  font-size: 16px; line-height: 24px; font-weight: 500;
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+  color: var(--md-on-surface);
+}
 
 .report-preview-label {
   display: block; margin-bottom: 8px;

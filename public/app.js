@@ -1175,12 +1175,26 @@ function reportLine(row) {
     + (eta ? `, eta: ${eta}` : '');
 }
 
+/**
+ * Time across the tasks you are including, which is what the report speaks for.
+ * Deliberately not gated on status the way the preview lines are: a row you
+ * kept but have not labelled yet is still time you worked today.
+ */
+function renderTotal() {
+  const seconds = reportRows
+    .filter((r) => r.include.checked)
+    .reduce((sum, r) => sum + r.seconds, 0);
+  $('report-total').hidden = reportRows.length === 0;
+  $('report-total-value').textContent = `${fmtDuration(seconds)} · ${(seconds / 3600).toFixed(2)}h`;
+}
+
 /** Rows without a status say nothing worth reporting, so they drop out. */
 function renderPreview() {
   $('report-preview').value = reportRows
     .filter((r) => r.include.checked && r.select.value && r.select.value !== ADD_STATUS)
     .map(reportLine)
     .join('\n');
+  renderTotal();
 }
 
 function buildReportRow(label, seconds, index) {
@@ -1261,6 +1275,7 @@ async function openReport() {
   host.textContent = '';
   reportRows = [];
   $('report-preview').value = '';
+  $('report-total').hidden = true;
   $('report-sub').textContent = 'Loading…';
   reportDialog.showModal();
 
@@ -1306,6 +1321,7 @@ async function openReport() {
     host.append(wrap);
     reportRows.push(row);
   }
+  renderTotal();
 }
 
 $('report-btn').onclick = openReport;

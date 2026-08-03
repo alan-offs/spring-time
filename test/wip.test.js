@@ -21,16 +21,19 @@ describe('parseSheetId', () => {
 
 describe('monthMatches', () => {
   const july = new Date(2026, 6, 21);
-  test('matches the current month + year in the title', () => {
-    assert.deepEqual(monthMatches('WIP - JULY 2026 - 20', july), { ok: true, month: 'JULY 2026' });
+  test('matches the abbreviated month + year in the title', () => {
+    assert.deepEqual(monthMatches('WIP - JUL 2026 - 20', july), { ok: true, month: 'JUL 2026' });
+  });
+  test('still matches the old full-name form', () => {
+    assert.deepEqual(monthMatches('WIP - JULY 2026 - 20', july), { ok: true, month: 'JUL 2026' });
   });
   test('is case-insensitive', () => {
-    assert.equal(monthMatches('wip - july 2026', july).ok, true);
+    assert.equal(monthMatches('wip - jul 2026', july).ok, true);
   });
   test("flags the wrong month's file", () => {
-    const r = monthMatches('WIP - JULY 2026', new Date(2026, 7, 1));
+    const r = monthMatches('WIP - JUL 2026', new Date(2026, 7, 1));
     assert.equal(r.ok, false);
-    assert.equal(r.month, 'AUGUST 2026');
+    assert.equal(r.month, 'AUG 2026');
   });
   test('flags a title with no month at all', () => {
     assert.equal(monthMatches('some random sheet', july).ok, false);

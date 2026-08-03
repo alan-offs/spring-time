@@ -9,8 +9,8 @@ import { HttpError } from './db.js';
 const SHEETS_API = 'https://sheets.googleapis.com/v4/spreadsheets';
 
 const MONTHS = [
-  'JANUARY', 'FEBRUARY', 'MARCH', 'APRIL', 'MAY', 'JUNE',
-  'JULY', 'AUGUST', 'SEPTEMBER', 'OCTOBER', 'NOVEMBER', 'DECEMBER',
+  'JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN',
+  'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC',
 ];
 
 // --------------------------------------------------------------- pure bits --
@@ -30,10 +30,11 @@ export function parseSheetId(input) {
 
 /**
  * Does a spreadsheet title name the same month as `date`? The team keeps one
- * file per month ("WIP - JULY 2026 - ...") and reporting into the wrong month's
+ * file per month ("WIP - JUL 2026 - ...") and reporting into the wrong month's
  * file is the mistake this guards against. Returns the expected label too, for
  * the warning message. Match is loose on purpose: the title just has to contain
- * the current month name and year somewhere.
+ * the current month's 3-letter abbreviation and year somewhere — which also
+ * matches the old full-name form ("JULY" contains "JUL").
  */
 export function monthMatches(title, date = new Date()) {
   const name = MONTHS[date.getMonth()];

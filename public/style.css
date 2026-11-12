@@ -239,6 +239,16 @@ button {
 }
 button:focus-visible { outline: 3px solid var(--md-primary); outline-offset: 2px; }
 
+/* Busy: a request is in flight. JS also sets disabled + aria-busy; the spinner
+   inherits the label colour so it works on filled, text and error buttons. */
+button.is-busy { pointer-events: none; }
+button.is-busy::before {
+  content: ''; flex: none; width: 14px; height: 14px; box-sizing: border-box;
+  border: 2px solid currentColor; border-right-color: transparent;
+  border-radius: 50%; animation: spin .7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
 /* Filled: the one high-emphasis action per view. */
 .btn-primary { background: var(--md-primary); color: var(--md-on-primary); }
 .btn-primary:hover { box-shadow: var(--md-elev-1); }
@@ -756,6 +766,47 @@ dialog .row .field { flex: 1 1 140px; }
   .report-controls .md-select { flex: 1 1 100%; }
 }
 
+/* ---------------------------------------------------------------- log OT -- */
+/* Seven columns including a full task URL, so wider than the report dialog; the
+   table scrolls sideways inside the dialog rather than stretching it. */
+#ot-dialog { width: min(980px, calc(100vw - 48px)); }
+#ot-dialog .sub { margin: -8px 0 12px; }
+#ot-dialog .row .field { flex: 0 1 220px; }
+
+.ot-table { max-height: min(40vh, 360px); overflow: auto; margin-bottom: 20px; }
+.ot-table:empty { margin-bottom: 0; }
+.ot-table table { border-collapse: collapse; font-size: 13px; line-height: 20px; width: 100%; }
+.ot-table th, .ot-table td {
+  border: 1px solid var(--md-outline-variant);
+  padding: 4px 8px; text-align: left; white-space: nowrap;
+}
+.ot-table th {
+  position: sticky; top: 0;
+  background: var(--md-surface-container-highest);
+  font-weight: 500; text-align: center;
+}
+.ot-table tfoot td { font-weight: 500; background: var(--md-surface-container-highest); text-align: right; }
+.ot-table td:nth-child(4) { text-align: right; font-variant-numeric: tabular-nums; }
+.ot-table a { color: var(--md-primary); text-decoration: none; }
+.ot-table a:hover { text-decoration: underline; }
+.ot-table td input, .ot-table td textarea {
+  width: 100%; min-width: 14ch; box-sizing: border-box;
+  font: inherit; color: var(--md-on-surface);
+  background: transparent; border: none; border-bottom: 1px solid var(--md-outline);
+  padding: 2px 0;
+}
+.ot-table td textarea { display: block; resize: vertical; white-space: pre; }
+.ot-table td input:focus, .ot-table td textarea:focus { outline: none; border-bottom-color: var(--md-primary); }
+
+details.ot-text { margin-bottom: 16px; }
+details.ot-text summary {
+  cursor: pointer; font-size: 14px; color: var(--md-on-surface-variant); margin-bottom: 12px;
+}
+.ot-hint { margin: -8px 0 8px; font-size: 12px; line-height: 16px; color: var(--md-on-surface-variant); }
+
+.ot-result { font-size: 14px; line-height: 20px; margin: 0 0 16px; color: var(--md-on-surface); }
+.ot-result a { color: var(--md-primary); }
+
 /* -------------------------------------------------------------- snackbar -- */
 /* MD3 snackbar: inverse surface, 4px corner, anchored bottom-start on desktop. */
 .toast {
@@ -781,6 +832,7 @@ dialog .row .field { flex: 1 1 140px; }
   body.is-loading .tile .value,
   body.is-loading .chart-host,
   body.is-loading #entries-table { animation: none; }
+  button.is-busy::before { animation: spin 1.6s linear infinite !important; }
   *, *::before, *::after {
     transition-duration: 1ms !important;
     animation-duration: 1ms !important;

@@ -65,6 +65,12 @@ function migrate() {
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
+    -- Small key/value store for dashboard-editable settings (the Log OT recipients).
+    CREATE TABLE IF NOT EXISTS settings (
+      key   TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
+
     CREATE INDEX IF NOT EXISTS idx_entries_started ON entries(started_at);
     CREATE INDEX IF NOT EXISTS idx_entries_project ON entries(project_id);
     -- At most one timer may run at a time, across all projects.

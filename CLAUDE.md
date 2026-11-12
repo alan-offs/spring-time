@@ -80,6 +80,26 @@ read the CSRF state cookie. The `id_token` signature is not verified, because it
 arrives on our own TLS connection to Google's token endpoint and no client-
 submitted token is ever accepted.
 
+**`src/teamwork.js` / `src/gmail.js`** — the "Log OT" feature (`/api/ot/*`). Same
+shape as `sheets.js`: global `fetch`, a pure half the tests hit directly, and
+Google calls that take an already-valid token. `teamwork.js` reads
+`TEAMWORK_SITE` / `TEAMWORK_API_TOKEN` from `.env` at *call* time and shapes
+timelogs into the Program tab of the OT template (one row per entry; the header
+text is the template's verbatim). It queries a day either side and re-filters by
+local day — a UTC-only window drops early-morning entries. `gmail.js` builds the
+RFC 2822 message and creates a draft or sends; it maps a *scope-missing* 403 to 401
+because a pre-Gmail session still refreshes a valid (scope-less) token, so the
+failure surfaces at Gmail, not in `getGoogleAccessToken`. `/api/ot/send` always
+re-fetches rows server-side (only the status column is client-overridable, and it is
+multi-line) and appends the sender's own Gmail signature (read via `sendAs`, scope
+`gmail.settings.basic` — the API never adds one; a missing scope fails the request
+rather than mailing unsigned). Mail wording (`greeting`/`intro`/`closing`) is settings.
+A module flag refuses a concurrent send so a mail can't go out twice. Recipients and
+mode live in the additive `settings` table (`ot.*` keys). A task's board column is a
+Teamwork *workflow stage*: the status column costs two extra reads (`tasks.json?ids=`
+for `workflowStages` ids, then `workflows/{id}/stages.json` for names), is best-effort,
+and falls back to blank (the dashboard lets the user type it).
+
 **`public/`** — no framework: `app.js` renders DOM directly, the chart is hand-built
 SVG. `sw.js` caches the app shell but always passes `/api/*` to the network so time
 data is never stale-served; bump the `CACHE` constant when shell files change (and

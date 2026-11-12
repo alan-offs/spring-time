@@ -89,7 +89,7 @@ describe('GET /api/auth/google', () => {
     assert.equal(url.searchParams.get('response_type'), 'code');
     assert.equal(
       url.searchParams.get('scope'),
-      'openid email profile https://www.googleapis.com/auth/spreadsheets',
+      'openid email profile https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/gmail.compose https://www.googleapis.com/auth/gmail.settings.basic',
     );
     // Offline access so we get a refresh_token for later Sheets writes.
     assert.equal(url.searchParams.get('access_type'), 'offline');

@@ -157,6 +157,10 @@ Everything the dashboard does is a documented endpoint. Base `http://localhost:4
 | `GET` | `/api/wip/title` | WIP sheet title + whether it names this month; `?id=` |
 | `GET` | `/api/wip/row` | your matched row(s) in today's tab; `?id=` |
 | `POST` | `/api/wip/report` | write the report preview into column D of your row |
+| `GET` | `/api/ot/settings` | Log OT recipients, mode and mail wording: `{to, cc, mode, subject, greeting, intro, closing}` |
+| `PUT` | `/api/ot/settings` | partial update; `mode` is `draft` or `send`; also `greeting`, `intro`, `closing` |
+| `GET` | `/api/ot/preview` | `?date=YYYY-MM-DD` (default today) — your Teamwork timesheet as OT-request rows + HTML |
+| `POST` | `/api/ot/send` | `{date, mode?, to?, cc?, statuses?}` — creates a Gmail draft or sends; `409` if the day has no entries |
 
 `from`/`to` are inclusive local dates (`YYYY-MM-DD`) and default to the last 7 days.
 
@@ -282,10 +286,46 @@ Because the scope changed, anyone already signed in must sign in once more to
 grant it. Enable the **Google Sheets API** for your project under *APIs &
 Services → Library*.
 
+### Log OT (Teamwork → email)
+
+**Log OT** (in the filter bar, once signed in) pulls one day's time entries for
+*your* Teamwork account, lays them out as the OT-request table — one row per
+entry, the seven columns of the **Program** tab of `OT Request Template.xlsx` —
+and puts it in your Gmail. The dialog always shows the table first: pick the date
+(default today), the recipients (**To** / **Cc**, several addresses separated by
+commas) and what happens at the end:
+
+- **Create Gmail draft** (default) — nothing is sent; open it from Drafts.
+- **Send immediately** — no draft, the mail goes out as soon as you press **Send**.
+
+The mail reads: greeting, intro line, the table, closing, then **your own Gmail
+signature** (the API never adds one, so it is read from your Gmail settings and
+appended). Greeting, intro and closing are editable under *Email wording* — the
+defaults are generic (`Dear all,` / `Em xin phép gửi logs thời gian OT ạ:` /
+`Thanks & Regards`), so set the recipient's name in the greeting once.
+
+In the table, dates are `dd/mm/yy` and times `h:mm:ss AM/PM`; the task column is
+the task's title linked to the task; **Task's status** is the task's board column
+(Teamwork "workflow stage") and is a multi-line box — type extra lines there
+(`- #25-28: Done`) and they appear in the mail. Recipients, mode and wording are
+saved on the server (`settings` table) and shared by the dashboard and the API.
+A day with no entries mails nothing.
+
+Setup, in `.env` (see `.env.example`): `TEAMWORK_SITE` (e.g.
+`yourcompany.teamwork.com`) and `TEAMWORK_API_TOKEN` (Teamwork → your avatar →
+*Edit my details* → *API & Mobile*). On the Google side, enable the **Gmail API**
+in the Cloud project that owns the OAuth client and add the
+`https://www.googleapis.com/auth/gmail.compose` and
+`https://www.googleapis.com/auth/gmail.settings.basic` (to read your signature)
+scopes to its consent screen — without them, Gmail calls fail with 403 even after
+you consent. Neither scope reads your mail. Anyone
+signed in before this feature existed must **sign in again** once to grant the
+scope; the dialog offers a *Sign in again* button when Gmail says so.
+
 ## Development
 
 ```bash
-npm test        # 45 tests, no network or fixtures needed
+npm test        # no network or fixtures needed
 npm run dev     # server with --watch
 npm run icons   # regenerate PNG icons from the vector source
 ```

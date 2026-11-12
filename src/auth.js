@@ -24,7 +24,18 @@ const TOKEN_ENDPOINT = 'https://oauth2.googleapis.com/token';
 // WIP sheet on their behalf. Adding it means existing sessions — signed in before
 // this scope existed — must sign in again to grant it; getGoogleAccessToken()
 // throws a 401 for them so the client can prompt a reconnect.
-const SCOPES = 'openid email profile https://www.googleapis.com/auth/spreadsheets';
+//
+// `gmail.compose` (drafts + send, nothing that reads the mailbox) backs "Log OT", and
+// `gmail.settings.basic` lets it read the sender's own signature so the mail carries it
+// (the API never appends one). Neither reads mail. A session from before they existed
+// still refreshes a valid token — just one without them — so there the 401 comes from
+// Gmail itself (see gmail.js), not here.
+const SCOPES = [
+  'openid email profile',
+  'https://www.googleapis.com/auth/spreadsheets',
+  'https://www.googleapis.com/auth/gmail.compose',
+  'https://www.googleapis.com/auth/gmail.settings.basic',
+].join(' ');
 
 const SESSION_COOKIE = 'wt_session';
 const STATE_COOKIE = 'wt_oauth';

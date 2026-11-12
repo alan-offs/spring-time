@@ -91,6 +91,7 @@
     <button id="add-btn" class="btn-outlined state">Add entry</button>
     <button id="export-btn" class="btn-text state" data-tip="Download the current range as CSV">Export CSV</button>
     <button id="report-btn" class="btn-text state" data-tip="Build today's standup report">Daily report</button>
+    <button id="ot-btn" class="btn-text state" hidden data-tip="Pull a day's Teamwork timesheet into an OT request email">Log OT</button>
   </div>
 
   <section class="charts">
@@ -179,6 +180,51 @@
     <button type="button" id="report-close" class="btn-text state">Close</button>
     <button type="button" id="report-copy" class="btn-text state">Copy</button>
     <button type="button" id="report-wip-btn" class="btn-primary state" hidden data-tip="Write this preview into column D of your row">Report WIP</button>
+  </div>
+</dialog>
+
+<dialog id="ot-dialog" aria-labelledby="ot-title">
+  <h2 id="ot-title">Log OT</h2>
+  <div class="sub" id="ot-sub">&nbsp;</div>
+  <div class="row">
+    <div class="field">
+      <input type="text" id="ot-date" placeholder=" " autocomplete="off">
+      <label for="ot-date">Date</label>
+    </div>
+    <div id="ot-mode"></div>
+  </div>
+  <div id="ot-table" class="ot-table"></div>
+  <div class="field">
+    <input type="text" id="ot-to" placeholder=" " autocomplete="off" spellcheck="false">
+    <label for="ot-to">To</label>
+  </div>
+  <div class="field">
+    <input type="text" id="ot-cc" placeholder=" " autocomplete="off" spellcheck="false">
+    <label for="ot-cc">Cc</label>
+  </div>
+  <details class="ot-text">
+    <summary>Email wording</summary>
+    <div class="field">
+      <input type="text" id="ot-greeting" placeholder=" " autocomplete="off">
+      <label for="ot-greeting">Greeting</label>
+    </div>
+    <div class="field">
+      <input type="text" id="ot-intro" placeholder=" " autocomplete="off">
+      <label for="ot-intro">Intro line</label>
+    </div>
+    <div class="field">
+      <input type="text" id="ot-closing" placeholder=" " autocomplete="off">
+      <label for="ot-closing">Closing</label>
+    </div>
+    <p class="ot-hint">Your Gmail signature is added after the closing.</p>
+  </details>
+  <p class="dialog-error" id="ot-error" role="alert" hidden></p>
+  <p class="ot-result" id="ot-result" role="status" hidden></p>
+  <div class="dialog-actions">
+    <button type="button" id="ot-close" class="btn-text state">Close</button>
+    <button type="button" id="ot-signin" class="btn-text state" hidden>Sign in again</button>
+    <button type="button" id="ot-save" class="btn-text state" data-tip="Remember the recipients and mode">Save settings</button>
+    <button type="button" id="ot-send" class="btn-primary state" disabled>Create draft</button>
   </div>
 </dialog>
 

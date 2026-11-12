@@ -10,8 +10,41 @@ import {
   parseSheetId, monthMatches, matchRows, todayTab, getMeta, getRows, updateRow, a1,
 } from './sheets.js';
 import { updateInfo, applyUpdate } from './update.js';
+import {
+  OT_HEADERS, fetchOtRows, renderOtHtml, renderOtEmail, formatTotal, totalMinutes, otSubject,
+} from './teamwork.js';
+import { buildRaw, parseAddresses, createDraft, sendMessage, getSignature } from './gmail.js';
 
 const nowISO = () => new Date().toISOString();
+
+// ---- Log OT settings: a handful of `ot.*` rows in the settings table. ----------
+// Wording defaults are deliberately generic — a recipient's name doesn't belong in a
+// shared repo; each person sets their own greeting from the dialog.
+const OT_DEFAULTS = {
+  to: '', cc: '', mode: 'draft', subject: 'OT request - {name} - {date}',
+  greeting: 'Dear all,',
+  intro: 'Em xin phép gửi logs thời gian OT ạ:',
+  closing: 'Thanks & Regards',
+};
+const OT_TEXT_FIELDS = ['greeting', 'intro', 'closing'];
+const OT_MODES = ['draft', 'send'];
+
+function otSettings() {
+  const out = { ...OT_DEFAULTS };
+  for (const { key, value } of handle().prepare("SELECT key, value FROM settings WHERE key LIKE 'ot.%'").all()) {
+    out[key.slice(3)] = value;
+  }
+  return out;
+}
+
+function validMode(mode) {
+  if (!OT_MODES.includes(mode)) throw new HttpError(400, `mode must be one of: ${OT_MODES.join(', ')}`);
+  return mode;
+}
+
+// One send at a time: a double-click or a retry racing the first request must not
+// put the same OT mail in a manager's inbox twice.
+let otBusy = false;
 
 function runningEntry() {
   return handle()
@@ -156,6 +189,89 @@ export const routes = [
     // today" / END OF DAY); nothing else in the row is touched.
     await updateRow(token, id, a1(tab, ['D', 'D'], rowNumber), [String(body.content ?? '')]);
     return { ok: true };
+  }],
+
+  // ---- ot -----------------------------------------------------------------
+  // "Log OT": pull the day's timesheet from Teamwork, lay it out as the OT-request
+  // table, and put it in the signed-in user's Gmail as a draft or send it outright.
+  // The recipients and mode live in the settings table so the dashboard can edit them.
+
+  ['GET', /^\/api\/ot\/settings$/, () => otSettings()],
+
+  ['PUT', /^\/api\/ot\/settings$/, (_m, { body }) => {
+    const next = {};
+    if (body.to !== undefined) next.to = parseAddresses(body.to, 'to').join(', ');
+    if (body.cc !== undefined) next.cc = parseAddresses(body.cc, 'cc').join(', ');
+    if (body.mode !== undefined) next.mode = validMode(body.mode);
+    if (body.subject !== undefined) {
+      const subject = String(body.subject).trim();
+      if (!subject || subject.length > 200) throw new HttpError(400, 'subject must be 1–200 characters');
+      next.subject = subject;
+    }
+    // Mail wording: free text, may be emptied to drop that line from the mail.
+    for (const field of OT_TEXT_FIELDS) {
+      if (body[field] === undefined) continue;
+      const text = String(body[field]).trim();
+      if (text.length > 500) throw new HttpError(400, `${field} must be at most 500 characters`);
+      next[field] = text;
+    }
+    const upsert = handle().prepare(
+      'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',
+    );
+    for (const [k, v] of Object.entries(next)) upsert.run(`ot.${k}`, v);
+    return otSettings();
+  }],
+
+  // The table as it would be mailed. Needs Teamwork only — no Google token.
+  ['GET', /^\/api\/ot\/preview$/, async (_m, { query }) => {
+    const date = parseDayKey(query.get('date'), 'date') || dayKey(new Date());
+    const rows = await fetchOtRows(date);
+    const minutes = totalMinutes(rows);
+    return {
+      date, headers: OT_HEADERS, rows, totalMinutes: minutes, total: formatTotal(minutes), html: renderOtHtml(rows),
+    };
+  }],
+
+  ['POST', /^\/api\/ot\/send$/, async (_m, { req, body }) => {
+    const settings = otSettings();
+    const date = parseDayKey(body.date, 'date') || dayKey(new Date());
+    const mode = validMode(body.mode ?? settings.mode);
+    const to = parseAddresses(body.to ?? settings.to, 'to');
+    const cc = parseAddresses(body.cc ?? settings.cc, 'cc');
+    if (to.length === 0) throw new HttpError(400, 'set at least one recipient (to) first');
+    const user = sessionUser(req);
+    if (!user) throw new HttpError(401, 'sign in with Google first');
+
+    if (otBusy) throw new HttpError(409, 'an OT mail is already being sent');
+    otBusy = true;
+    try {
+      const token = await getGoogleAccessToken(req);
+      // Rows are always re-fetched here, never taken from the client — only the
+      // status column may be overridden, because the board-column lookup can be empty.
+      const overrides = body.statuses && typeof body.statuses === 'object' ? body.statuses : {};
+      const rows = (await fetchOtRows(date)).map((r) => (
+        overrides[r.id] === undefined ? r : { ...r, status: String(overrides[r.id]).slice(0, 1000) }
+      ));
+      if (rows.length === 0) throw new HttpError(409, `no time entries on ${date} — nothing was sent`);
+
+      // The API never appends a signature, so fetch it now — before anything is
+      // created — and let a missing scope fail the request rather than silently mail
+      // without one.
+      const signature = await getSignature(token, user.email);
+      const html = renderOtEmail({
+        greeting: settings.greeting, intro: settings.intro, closing: settings.closing, rows, signature,
+      });
+      const raw = buildRaw({ to, cc, subject: otSubject(settings.subject, user.name, date), html });
+      const result = mode === 'send'
+        ? await sendMessage(token, raw, user.email)
+        : await createDraft(token, raw, user.email);
+      return {
+        mode, date, entries: rows.length, total: formatTotal(totalMinutes(rows)),
+        signature: signature !== '', ...result,
+      };
+    } finally {
+      otBusy = false;
+    }
   }],
 
   // ---- projects -----------------------------------------------------------

@@ -134,7 +134,11 @@ async function api(path, options = {}) {
     body: options.body ? JSON.stringify(options.body) : undefined,
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || res.statusText);
+  if (!res.ok) {
+    const err = new Error(data.error || res.statusText);
+    err.status = res.status; // callers use it to tell "sign in again" (401) from the rest
+    throw err;
+  }
   return data;
 }
 
@@ -145,6 +149,22 @@ function toast(msg) {
   el.classList.add('show');
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => el.classList.remove('show'), 2200);
+}
+
+/** Mark a button busy (spinner + disabled) while `fn` runs; ignores re-entry. */
+async function withBusy(btn, fn) {
+  if (!btn || btn.classList.contains('is-busy')) return;
+  const wasDisabled = btn.disabled;
+  btn.disabled = true;
+  btn.classList.add('is-busy');
+  btn.setAttribute('aria-busy', 'true');
+  try {
+    return await fn();
+  } finally {
+    btn.classList.remove('is-busy');
+    btn.removeAttribute('aria-busy');
+    btn.disabled = wasDisabled;
+  }
 }
 
 // ------------------------------------------------------------------ chart --
@@ -547,13 +567,15 @@ function buildEntryRow(e, i) {
           ],
         });
         if (!mode) return;
-        try {
-          await api(`/entries/${e.id}/continue`, { method: 'POST', body: { mode } });
-          toast(`Continuing ${e.projectName}`);
-          await refresh();
-        } catch (err) {
-          toast(err.message);
-        }
+        await withBusy(cont, async () => {
+          try {
+            await api(`/entries/${e.id}/continue`, { method: 'POST', body: { mode } });
+            toast(`Continuing ${e.projectName}`);
+            await refresh();
+          } catch (err) {
+            toast(err.message);
+          }
+        });
       };
       actions.append(cont);
     }
@@ -568,7 +590,7 @@ function buildEntryRow(e, i) {
     again.dataset.tip = 'Start a new, separate timer for this task, beginning now';
     again.setAttribute('aria-label',
       `Start a new timer for ${e.projectName}${e.description ? `: ${e.description}` : ''}`);
-    again.onclick = async () => {
+    again.onclick = () => withBusy(again, async () => {
       try {
         const res = await api(`/projects/${encodeURIComponent(e.project)}/start`, {
           method: 'POST',
@@ -583,7 +605,7 @@ function buildEntryRow(e, i) {
       } catch (err) {
         toast(err.message);
       }
-    };
+    });
     actions.append(again);
 
     const edit = document.createElement('button');
@@ -607,9 +629,15 @@ function buildEntryRow(e, i) {
         destructive: true,
       });
       if (!ok) return;
-      await api(`/entries/${e.id}`, { method: 'DELETE' });
-      toast('Entry deleted');
-      refresh();
+      await withBusy(del, async () => {
+        try {
+          await api(`/entries/${e.id}`, { method: 'DELETE' });
+          toast('Entry deleted');
+          await refresh();
+        } catch (err) {
+          toast(err.message);
+        }
+      });
     };
     actions.append(del);
   }
@@ -865,6 +893,7 @@ async function runUpdate() {
 
   updating = true;
   $('update-btn').disabled = true;
+  $('update-btn').classList.add('is-busy');
   $('update-text').textContent = 'Updating…';
   // The connection may drop as the server restarts — that's expected, not an error.
   await api('/update', { method: 'POST', body: {} }).catch(() => {});
@@ -881,6 +910,7 @@ async function runUpdate() {
   }
   updating = false;
   $('update-btn').disabled = false;
+  $('update-btn').classList.remove('is-busy');
   $('update-text').textContent = 'Restart is taking a while — try again.';
 }
 
@@ -981,7 +1011,7 @@ function statusValues() {
 
 // ------------------------------------------------------------------ wiring --
 
-$('toggle-btn').onclick = async () => {
+$('toggle-btn').onclick = () => withBusy($('toggle-btn'), async () => {
   try {
     if (state.running) {
       await api('/stop', { method: 'POST', body: {} });
@@ -999,7 +1029,7 @@ $('toggle-btn').onclick = async () => {
   } catch (err) {
     toast(err.message);
   }
-};
+});
 
 /**
  * Adjust the running timer's start time — the "I forgot to hit start 20 minutes
@@ -1117,16 +1147,18 @@ form.addEventListener('submit', async (e) => {
     }
   }
 
-  try {
-    if (editingId) await api(`/entries/${editingId}`, { method: 'PATCH', body });
-    else await api('/entries', { method: 'POST', body });
-    dialog.close();
-    toast(editingId ? 'Entry updated' : 'Entry added');
-    await refresh();
-  } catch (err) {
-    $('dialog-error').textContent = err.message;
-    $('dialog-error').hidden = false;
-  }
+  await withBusy($('dialog-save'), async () => {
+    try {
+      if (editingId) await api(`/entries/${editingId}`, { method: 'PATCH', body });
+      else await api('/entries', { method: 'POST', body });
+      dialog.close();
+      toast(editingId ? 'Entry updated' : 'Entry added');
+      await refresh();
+    } catch (err) {
+      $('dialog-error').textContent = err.message;
+      $('dialog-error').hidden = false;
+    }
+  });
 });
 
 // ---- daily report ---------------------------------------------------------
@@ -1409,7 +1441,9 @@ async function promptForSheet() {
  * The preview textarea is the source of truth — the user has previewed and
  * edited it — and it lands in column D only ("What I have done for today").
  */
-async function reportWipToSheet() {
+const reportWipToSheet = () => withBusy($('report-wip-btn'), reportWipToSheetInner);
+
+async function reportWipToSheetInner() {
   const content = $('report-preview').value.trim();
   if (!content) return toast('Nothing to report — pick a status first');
 
@@ -1440,8 +1474,6 @@ async function reportWipToSheet() {
     picked = cands[Number(choice)];
   }
 
-  const btn = $('report-wip-btn');
-  btn.disabled = true;
   try {
     await api('/wip/report', {
       method: 'POST',
@@ -1451,14 +1483,212 @@ async function reportWipToSheet() {
     toast('Reported to the WIP sheet');
   } catch (err) {
     toast(err.message);
-  } finally {
-    btn.disabled = false;
   }
 }
 
 $('report-wip-btn').onclick = reportWipToSheet;
 $('wip-set-btn').onclick = promptForSheet;
 $('wip-title').onclick = promptForSheet;
+
+// -------------------------------------------------------------------- ot --
+// "Log OT": the server pulls a day's timesheet from Teamwork (/api/ot/preview),
+// and mails it as a Gmail draft or sends it outright (/api/ot/send) — the dialog is
+// always the review step. Recipients and mode persist server-side (/api/ot/settings).
+// Rows are never sent back from here: the server re-fetches them, and the only thing
+// the user can override is the status column, which Teamwork may not know.
+
+const otDialog = $('ot-dialog');
+const otStatus = new Map(); // timelog id -> its editable status <input>
+let otReady = false;        // a non-empty, not-yet-mailed table is on screen
+let otBusy = false;         // a send is in flight — the button stays dead
+let otLoadSeq = 0;          // drops a slow preview that a newer date has overtaken
+
+const otMode = createSelect($('ot-mode'), { label: 'When ready', onChange: () => paintOtSend() });
+otMode.setOptions([
+  { value: 'draft', label: 'Create Gmail draft' },
+  { value: 'send', label: 'Send immediately' },
+]);
+otMode.setValue('draft');
+attachDatePicker($('ot-date'));
+
+function paintOtSend() {
+  const btn = $('ot-send');
+  btn.textContent = otMode.value === 'send' ? 'Send' : 'Create draft';
+  btn.disabled = otBusy || !otReady;
+  btn.classList.toggle('is-busy', otBusy);
+  btn.toggleAttribute('aria-busy', otBusy);
+}
+
+function clearOtMessages() {
+  $('ot-error').hidden = true;
+  $('ot-result').hidden = true;
+  $('ot-signin').hidden = true;
+}
+
+function showOtError(err) {
+  $('ot-error').textContent = err.message;
+  $('ot-error').hidden = false;
+  $('ot-result').hidden = true;
+  // 401 = Google access missing (never signed in, or signed in before Gmail was
+  // a scope): the only fix is another trip through consent.
+  $('ot-signin').hidden = err.status !== 401;
+}
+
+function renderOtTable({ headers, rows, total }) {
+  otStatus.clear();
+  otReady = rows.length > 0;
+  $('ot-sub').textContent = rows.length
+    ? `${rows.length} ${rows.length === 1 ? 'entry' : 'entries'} · ${total}`
+    : 'No time entries on this day.';
+  if (!rows.length) {
+    $('ot-table').replaceChildren();
+    return;
+  }
+
+  const table = document.createElement('table');
+  const head = table.createTHead().insertRow();
+  for (const h of headers) {
+    const th = document.createElement('th');
+    th.textContent = h;
+    head.append(th);
+  }
+  const body = table.createTBody();
+  for (const r of rows) {
+    const tr = body.insertRow();
+    for (const v of [r.date, r.start, r.end, r.hours, r.project]) tr.insertCell().textContent = v;
+
+    const linkCell = tr.insertCell();
+    if (/^https:\/\/\S+$/.test(r.link)) {
+      const a = document.createElement('a');
+      a.href = r.link;
+      a.textContent = r.title || r.link;
+      a.target = '_blank';
+      a.rel = 'noopener';
+      linkCell.append(a);
+    } else {
+      linkCell.textContent = r.link;
+    }
+
+    // Multi-line on purpose: the status cell carries per-task notes ("Done local",
+    // "- #25-28: Done", ...), and line breaks survive into the mail.
+    const input = document.createElement('textarea');
+    input.value = r.status;
+    input.rows = Math.min(4, Math.max(1, r.status.split('\n').length));
+    input.placeholder = 'status';
+    input.spellcheck = false;
+    input.setAttribute('aria-label', `Status of ${r.project || 'entry'} at ${r.start || r.date}`);
+    tr.insertCell().append(input);
+    otStatus.set(r.id, input);
+  }
+  const foot = table.createTFoot().insertRow();
+  headers.forEach((_, i) => {
+    const td = foot.insertCell();
+    if (i === 3) td.textContent = total;
+  });
+  $('ot-table').replaceChildren(table);
+}
+
+async function loadOtPreview() {
+  const seq = ++otLoadSeq;
+  otReady = false;
+  paintOtSend();
+  clearOtMessages();
+  $('ot-sub').textContent = 'Loading…';
+  $('ot-table').replaceChildren();
+  let data;
+  try {
+    data = await api(`/ot/preview?date=${encodeURIComponent($('ot-date').value.trim())}`);
+  } catch (err) {
+    if (seq !== otLoadSeq) return;
+    $('ot-sub').textContent = '';
+    showOtError(err);
+    return;
+  }
+  if (seq !== otLoadSeq) return;
+  renderOtTable(data);
+  paintOtSend();
+}
+
+async function openOt() {
+  $('ot-date').value = dayKey(new Date());
+  otDialog.showModal();
+  try {
+    const s = await api('/ot/settings');
+    $('ot-to').value = s.to;
+    $('ot-cc').value = s.cc;
+    $('ot-greeting').value = s.greeting;
+    $('ot-intro').value = s.intro;
+    $('ot-closing').value = s.closing;
+    otMode.setValue(s.mode);
+  } catch (err) {
+    showOtError(err);
+  }
+  await loadOtPreview();
+}
+
+const saveOtSettings = () => api('/ot/settings', {
+  method: 'PUT',
+  body: {
+    to: $('ot-to').value,
+    cc: $('ot-cc').value,
+    mode: otMode.value,
+    greeting: $('ot-greeting').value,
+    intro: $('ot-intro').value,
+    closing: $('ot-closing').value,
+  },
+});
+
+async function sendOt() {
+  otBusy = true;
+  paintOtSend();
+  clearOtMessages();
+  try {
+    // Persist first: a bad address fails here with its own message, before any mail.
+    await saveOtSettings();
+    const statuses = {};
+    for (const [id, input] of otStatus) statuses[id] = input.value.trim();
+    const res = await api('/ot/send', {
+      method: 'POST',
+      body: { date: $('ot-date').value.trim(), mode: otMode.value, statuses },
+    });
+
+    // This day has been mailed; picking another date reloads and re-arms the button.
+    otReady = false;
+    const result = $('ot-result');
+    result.textContent = `${res.mode === 'send' ? 'Sent' : 'Draft created'} · ${res.entries} ${res.entries === 1 ? 'entry' : 'entries'} · ${res.total}${res.signature ? '' : ' · no Gmail signature is set'} `;
+    if (/^https:\/\/mail\.google\.com\//.test(res.url)) {
+      const a = document.createElement('a');
+      a.href = res.url;
+      a.textContent = 'Open in Gmail';
+      a.target = '_blank';
+      a.rel = 'noopener';
+      result.append(a);
+    }
+    result.hidden = false;
+  } catch (err) {
+    showOtError(err);
+  } finally {
+    otBusy = false;
+    paintOtSend();
+  }
+}
+
+$('ot-btn').onclick = openOt;
+$('ot-close').onclick = () => otDialog.close();
+$('ot-date').addEventListener('change', loadOtPreview);
+$('ot-send').onclick = sendOt;
+$('ot-save').onclick = () => withBusy($('ot-save'), async () => {
+  clearOtMessages();
+  try {
+    await saveOtSettings();
+    toast('OT settings saved');
+  } catch (err) {
+    showOtError(err);
+  }
+});
+$('ot-signin').onclick = () => {
+  location.href = `/api/auth/google?next=${encodeURIComponent(location.pathname + location.search)}`;
+};
 
 $('retry-btn').onclick = async (e) => {
   e.target.disabled = true;
@@ -1537,6 +1767,7 @@ function renderAuth({ enabled, user }) {
   state.user = user || null;
   $('signin-btn').hidden = !enabled || !!user;
   $('avatar-btn').hidden = !user;
+  $('ot-btn').hidden = !user; // sending needs the user's Google token
   renderWip();
   if (!user) return;
 
@@ -1577,7 +1808,7 @@ $('signin-btn').onclick = () => {
 $('avatar-btn').onclick = () => accountDialog.showModal();
 $('account-close').onclick = () => accountDialog.close();
 
-$('logout-btn').onclick = async () => {
+$('logout-btn').onclick = () => withBusy($('logout-btn'), async () => {
   try {
     await api('/auth/logout', { method: 'POST' });
     accountDialog.close();
@@ -1586,7 +1817,7 @@ $('logout-btn').onclick = async () => {
   } catch (err) {
     toast(err.message);
   }
-};
+});
 
 // The callback bounces back here with ?auth_error=… when sign-in fails; say so
 // once, then scrub the parameter so a reload doesn't repeat it.

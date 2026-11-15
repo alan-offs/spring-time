@@ -202,9 +202,9 @@ describe('renderOtEmail', () => {
 
 describe('otSubject', () => {
   test('fills {name} and {date}, and cannot be split across lines', () => {
-    assert.equal(otSubject('OT request - {name} - {date}', 'Ada', '2026-11-12'), 'OT request - Ada - 2026-11-12');
+    assert.equal(otSubject('OT request - {name} - {date}', 'Ada', '2026-11-12'), 'OT request - Ada - 12-11-2026');
     assert.equal(otSubject('x\r\nBcc: evil@x.com', 'Ada', '2026-11-12'), 'x Bcc: evil@x.com');
-    assert.equal(otSubject('', 'Ada', '2026-11-12'), 'OT request - Ada - 2026-11-12');
+    assert.equal(otSubject('', 'Ada', '2026-11-12'), 'OT request - Ada - 12-11-2026');
   });
 });
 
@@ -425,7 +425,7 @@ describe('POST /api/ot/send', () => {
     assert.equal(call.init.headers.authorization, 'Bearer g-access');
     const raw = JSON.parse(call.init.body).message.raw;
     const text = decodeRaw(raw);
-    assert.match(text, /To: boss@x\.com\r\nCc: me@x\.com\r\nSubject: OT request - Ada Lovelace - 2026-11-12/);
+    assert.match(text, /To: boss@x\.com\r\nCc: me@x\.com\r\nSubject: OT request - Ada Lovelace - 12-11-2026/);
     const html = bodyOf(raw);
     assert.match(html, /Visibl/);
     assert.match(html, /Done<\/td>/); // the dashboard's status override wins over the board column

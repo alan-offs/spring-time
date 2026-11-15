@@ -207,9 +207,12 @@ export function renderOtEmail({ greeting, intro, rows, closing, signature }) {
 
 /** Subject from the saved template; `{name}` is the user, `{date}` is YYYY-MM-DD. */
 export function otSubject(template, name, day) {
+  // `day` is a YYYY-MM-DD day key; the subject reads DD-MM-YYYY. Plain string
+  // reshuffle — going through Date would risk a timezone shift.
+  const [y, m, d] = String(day).split('-');
   return String(template || 'OT request - {name} - {date}')
     .replaceAll('{name}', name || '')
-    .replaceAll('{date}', day)
+    .replaceAll('{date}', `${d}-${m}-${y}`)
     .replace(/[\r\n]+/g, ' ')
     .trim();
 }

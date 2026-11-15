@@ -282,8 +282,9 @@ button.is-busy::before {
 .avatar.lg { width: 72px; height: 72px; font-size: 28px; cursor: default; }
 
 /* Same trap as .banner and .since: `button` sets an author `display`, which
-   beats the UA [hidden] rule — without this both header buttons show at once. */
-.signin[hidden], .avatar[hidden] { display: none; }
+   beats the UA [hidden] rule — restate it for every button (header sign-in, the
+   OT dialog's "Sign in again", ...) so `el.hidden = true` actually hides. */
+button[hidden], .avatar[hidden] { display: none; }
 
 .account { text-align: center; padding: 8px 0 4px; }
 .account .avatar { margin: 0 auto 16px; }

@@ -8,6 +8,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 `127.0.0.1:4321`, a SQLite file at `~/.worktime/worktime.db`, and a vanilla-JS PWA
 dashboard. See README.md for the user-facing CLI/API reference.
 
+## Git workflow
+
+No feature branches and no PRs for this project: work, commit and push directly on
+`main` (the trunk; there is no `master`). Don't create a branch unless explicitly asked.
+
 ## Commands
 
 ```bash
